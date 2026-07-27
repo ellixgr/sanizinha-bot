@@ -169,6 +169,7 @@ def registrar_comandos_bv(app: Application):
     app.add_handler(CallbackQueryHandler(cb_cancelar, pattern=r"^bv_cancelar"))
     app.add_handler(CallbackQueryHandler(cb_menu_mensagens_prontas, pattern=r"^bv_mensagens_prontas"))
     app.add_handler(CallbackQueryHandler(cb_aplicar_legenda, pattern=r"^bv_legenda_"))
+    app.add_handler(CallbackQueryHandler(cb_aplicar_legenda, pattern=r"^bv_salvar_"))  # <-- ADICIONADO AQUI O CORRETO!
     app.add_handler(CallbackQueryHandler(cb_callback_botoes_especiais, pattern=r"^bv_esp_"))
 
 async def is_user_admin(update_or_client, chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE = None) -> bool:
@@ -467,9 +468,9 @@ async def cb_aplicar_legenda(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     
     query = update.callback_query
-    data = query.data # Ex: bv_legenda_legenda_1
+    data = query.data # Ex: bv_legenda_legenda_1 ou bv_salvar_legenda_1
     
-    # Se clicar para ver a pré-visualização ou aplicar diretamente
+    # Se clicar para ver a pré-visualização
     if data.startswith("bv_legenda_"):
         legenda_key = data.replace("bv_legenda_", "")
         
@@ -504,9 +505,6 @@ async def cb_aplicar_legenda(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
     await query.answer("Opção não encontrada!", show_alert=True)
-
-# Adicionamos o handler para a confirmação de salvamento das legendas
-app_extra_handler = CallbackQueryHandler(cb_aplicar_legenda, pattern=r"^bv_salvar_")
 
 async def cb_callback_botoes_especiais(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -603,7 +601,7 @@ async def callback_edit_texto_bv(update: Update, context: ContextTypes.DEFAULT_T
     ])
     
     instrucoes_texto = (
-        "Lyhh, agora envie a mensagem que você quer definir!\n\n"
+        "Envie agora a mensagem que você quer definir!\n\n"
         "Você pode usar HTML e:\n"
         "• `{ID}` = ID do usuário\n"
         "• `{NAME}` = nome do usuário\n"
