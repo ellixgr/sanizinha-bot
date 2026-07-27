@@ -11,17 +11,145 @@ from telegram.ext import (
     filters,
     ContextTypes
 )
+from pymongo import MongoClient
 
 logger = logging.getLogger("SanizinhaBot.BemVindo")
 
-TEXTOS_BV = {}
-MIDIAS_BV = {}
-BOTOES_BV = {}
-STATUS_BV = {}  
-ESTADOS_FLUXO = {} 
+# Configuração do MongoDB para persistir os dados no Render
+MONGO_URI = os.getenv("MONGO_URI", "sua_uri_do_mongodb_aqui")
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client["sanizinha_bot"]
+col_bemvindo = db["config_bem_vindo"]
 
 # Fuso horário do Brasil (UTC-3)
 FUSO_BR = timezone(timedelta(hours=-3))
+
+ESTADOS_FLUXO = {} 
+
+# --- FUNÇÕES DE PERSISTÊNCIA (MONGODB) ---
+def carregar_dados_bv(chat_id: int):
+    doc = col_bemvindo.find_one({"chat_id": chat_id})
+    if not doc:
+        return None, None, None, True
+    
+    texto = doc.get("texto")
+    midia = doc.get("midia") # Espera-se uma lista/tupla: [tipo, file_id, legenda]
+    if midia:
+        midia = tuple(midia)
+    
+    botoes_raw = doc.get("botoes") # Armazenamos a lista de linhas/botões ou o formato bruto para reconstruir
+    botoes = None
+    if botoes_raw:
+        # Recontrói o InlineKeyboardMarkup a partir da estrutura salva
+        teclado_linhas = []
+        for linha in botoes_raw:
+            linha_botoes = []
+            for b in linha:
+                if "url" in b:
+                    linha_botoes.append(InlineKeyboardButton(b["text"], url=b["url"]))
+                elif "callback_data" in b:
+                    linha_botoes.append(InlineKeyboardButton(b["text"], callback_data=b["callback_data"]))
+            teclado_linhas.append(linha_botoes)
+        botoes = InlineKeyboardMarkup(teclado_linhas)
+
+    status = doc.get("status", True)
+    return texto, midia, botoes, status
+
+def salvar_no_mongo(chat_id: int, campo: str, valor):
+    # Converte InlineKeyboardMarkup para formato serializável se necessário
+    if campo == "botoes" and isinstance(valor, InlineKeyboardMarkup):
+        serializavel = []
+        for linha in valor.inline_keyboard:
+            linha_s = []
+            for b in linha:
+                item = {"text": b.text}
+                if b.url:
+                    item["url"] = b.url
+                elif b.callback_data:
+                    item["callback_data"] = b.callback_data
+                linha_s.append(item)
+            serializavel.append(linha_s)
+        valor = serializavel
+
+    col_bemvindo.update_one(
+        {"chat_id": chat_id},
+        {"$set": {campo: valor}},
+        upsert=True
+    )
+
+def remover_do_mongo(chat_id: int, campo: str):
+    col_bemvindo.update_one(
+        {"chat_id": chat_id},
+        {"$unset": {campo: ""}}
+    )
+
+def alternar_status_mongo(chat_id: int) -> bool:
+    doc = col_bemvindo.find_one({"chat_id": chat_id})
+    status_atual = doc.get("status", True) if doc else True
+    novo_status = not status_atual
+    col_bemvindo.update_one(
+        {"chat_id": chat_id},
+        {"$set": {"status": novo_status}},
+        upsert=True
+    )
+    return novo_status
+
+# --- MENSAGENS PRONTAS (TEMPLATES) ---
+MENSAGENS_PRINT_PRESETS = {
+    "preset_1": (
+        "{MENTION}\n"
+        "👾 •𝑬𝑵𝑻𝑹𝑶𝑼 𝑺𝑬 𝑨𝑷𝑹𝑬𝑺𝑬𝑵𝑻𝑨•\n"
+        "📸 •F𝜣T𝜣\n"
+        "👻 •N𝜣ME\n"
+        "📌 •CID∆DE\n"
+        "🗓️ •ID∆DE\n"
+        "⚠️ •LEI∆ ∆S REGR∆S D𝜣 GRUP𝜣"
+    ),
+    "preset_2": (
+        "🔥 Seja muito bem-vindo(a), {MENTION}!\n\n"
+        "✨ **Ficha obrigatória para entrosar:**\n"
+        "👤 Nome: \n"
+        "🎂 Idade: \n"
+        "📍 Estado/Cidade: \n"
+        "📸 Foto no perfil?\n\n"
+        "⚠️ Respeite as regras do {GROUPNAME} para evitar banimento!"
+    ),
+    "preset_3": (
+        "🎉 Olha só quem chegou para agitar o **{GROUPNAME}**!\n\n"
+        "E aí {MENTION}, casa nova! Já vai mandando:\n"
+        "⚡ Seu nome ou apelido\n"
+        "⚡ De onde você é\n"
+        "⚡ Manda a self/foto\n\n"
+        "Divirta-se com moderação e siga as diretrizes do grupo! 🚀"
+    ),
+    "preset_4": (
+        "💎 **NOVO MEMBRO NA ÁREA!** 💎\n\n"
+        "Seja bem-vindo(a), {MENTION} ao {GROUPNAME}.\n"
+        "Para mantermos a organização, mande sua mini-apresentação:\n"
+        "🏷️ Apelido:\n"
+        "🌍 Cidade/Região:\n"
+        "🎯 O que curte fazer?\n\n"
+        "Divirta-se e faça novas amizades!"
+    ),
+    "preset_5": (
+        "⭐ *Atenção galera, mais um integrante chegou!* ⭐\n\n"
+        "Bem-vindo(a), {MENTION}! 🥳\n"
+        "Não fique acanhado(a), solte sua apresentação no chat:\n"
+        "📌 Nome / Idade\n"
+        "📌 Cidade\n"
+        "📌 Mande uma foto pra galera te conhecer\n\n"
+        "Leia as regras fixadas e aproveite o {GROUPNAME}!"
+    ),
+    "preset_6": (
+        "🚀 **PASSAPORTE CARIMBADO!** 🚀\n\n"
+        " {MENTION} acabou de pousar no {GROUPNAME}!\n\n"
+        "📝 Apresente-se para o clã:\n"
+        "• Nome:\n"
+        "• Idade:\n"
+        "• Cidade:\n\n"
+        "Seja gente boa e curta o espaço com a gente!"
+    )
+}
 
 def registrar_comandos_bv(app: Application):
     registrar_captura_fluxo(app)
@@ -41,6 +169,8 @@ def registrar_comandos_bv(app: Application):
     app.add_handler(CallbackQueryHandler(cb_toggle_status, pattern=r"^bv_toggle_status"))
     app.add_handler(CallbackQueryHandler(cb_toggle_visual, pattern=r"^bv_toggle_visual"))
     app.add_handler(CallbackQueryHandler(cb_cancelar, pattern=r"^bv_cancelar"))
+    app.add_handler(CallbackQueryHandler(cb_menu_mensagens_prontas, pattern=r"^bv_mensagens_prontas"))
+    app.add_handler(CallbackQueryHandler(cb_aplicar_preset, pattern=r"^bv_preset_"))
     app.add_handler(CallbackQueryHandler(cb_callback_botoes_especiais, pattern=r"^bv_esp_"))
 
 async def is_user_admin(update_or_client, chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE = None) -> bool:
@@ -145,18 +275,17 @@ async def cb_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await callback_cancelar_bv(update, context)
 
 async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message=None, query=None, aviso_extra: str = None, edit_message_id=None):
-    tem_texto = chat_id in TEXTOS_BV and bool(TEXTOS_BV[chat_id])
-    tem_midia = chat_id in MIDIAS_BV and bool(MIDIAS_BV[chat_id])
-    tem_botoes = chat_id in BOTOES_BV and bool(BOTOES_BV[chat_id])
-    
-    status_atual = STATUS_BV.get(chat_id, True)
+    texto, midia, botoes, status_atual = carregar_dados_bv(chat_id)
 
+    tem_texto = bool(texto)
+    tem_midia = bool(midia)
+    tem_botoes = bool(botoes)
+    
     txt_status = "✅" if tem_texto else "❌"
     mid_status = "✅" if tem_midia else "❌"
     bot_status = "✅" if tem_botoes else "❌"
     
     status_texto_painel = "🟢 Ativado" if status_atual else "🔴 Desativado"
-
     cabecalho = f"✅ **{aviso_extra}**\n\n" if aviso_extra else ""
 
     texto_painel = (
@@ -168,13 +297,11 @@ async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id
         "👉 **Use os botões abaixo para configurar:**"
     )
 
-    if status_atual:
-        botao_status = InlineKeyboardButton("🔴 Desativar boas-vindas", callback_data=f"bv_toggle_status")
-    else:
-        botao_status = InlineKeyboardButton("🟢 Ativar boas-vindas", callback_data=f"bv_toggle_status")
+    botao_status = InlineKeyboardButton("🔴 Desativar boas-vindas", callback_data=f"bv_toggle_status") if status_atual else InlineKeyboardButton("🟢 Ativar boas-vindas", callback_data=f"bv_toggle_status")
 
     teclado = InlineKeyboardMarkup([
         [InlineKeyboardButton("📄 Texto", callback_data="bv_edit_texto"), InlineKeyboardButton("👀 Veja", callback_data="bv_ver_texto")],
+        [InlineKeyboardButton("✨ Mensagens Prontas", callback_data="bv_mensagens_prontas")],
         [InlineKeyboardButton("🎞️ Mídias", callback_data="bv_edit_midia"), InlineKeyboardButton("👀 Veja", callback_data="bv_ver_midia")],
         [InlineKeyboardButton("🔲 Botões", callback_data="bv_edit_botoes"), InlineKeyboardButton("👀 Veja", callback_data="bv_ver_botoes")],
         [botao_status],
@@ -237,7 +364,7 @@ def registrar_captura_fluxo(app: Application):
 
         if estado == "aguardando_texto_bv":
             texto = message.text or message.caption or ""
-            TEXTOS_BV[chat.id] = texto
+            salvar_no_mongo(chat.id, "texto", texto)
             await enviar_painel_principal_bv(context, chat.id, aviso_extra="Texto configurado com sucesso!", edit_message_id=msg_id_painel)
 
         elif estado == "aguardando_midia_bv":
@@ -257,9 +384,12 @@ def registrar_captura_fluxo(app: Application):
             else:
                 return
 
-            MIDIAS_BV[chat.id] = (tipo, file_id, leg)
-            if leg and chat.id not in TEXTOS_BV:
-                TEXTOS_BV[chat.id] = leg
+            midia_dados = [tipo, file_id, leg]
+            salvar_no_mongo(chat.id, "midia", midia_dados)
+            if leg:
+                texto_atual, _, _, _ = carregar_dados_bv(chat.id)
+                if not texto_atual:
+                    salvar_no_mongo(chat.id, "texto", leg)
 
             await enviar_painel_principal_bv(context, chat.id, aviso_extra="Mídia configurada com sucesso!", edit_message_id=msg_id_painel)
 
@@ -305,10 +435,50 @@ def registrar_captura_fluxo(app: Application):
                     botoes_teclado.append(linha_botoes)
 
             if botoes_teclado:
-                BOTOES_BV[chat.id] = InlineKeyboardMarkup(botoes_teclado)
+                teclado_obj = InlineKeyboardMarkup(botoes_teclado)
+                salvar_no_mongo(chat.id, "botoes", teclado_obj)
                 await enviar_painel_principal_bv(context, chat.id, aviso_extra="Botões configurados com sucesso!", edit_message_id=msg_id_painel)
 
     app.add_handler(MessageHandler(~filters.COMMAND & (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Sticker.ALL), capturar_fluxo_admin), group=1)
+
+# --- MENU DE MENSAGENS PRONTAS ---
+async def cb_menu_mensagens_prontas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await verificar_permissao_callback(update, context):
+        return
+    
+    query = update.callback_query
+    teclado = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📌 Preset 1 (Sua Opção)", callback_data="bv_preset_preset_1")],
+        [InlineKeyboardButton("🔥 Preset 2 (Ficha Obrigatória)", callback_data="bv_preset_preset_2")],
+        [InlineKeyboardButton("🎉 Preset 3 (Casa Nova)", callback_data="bv_preset_preset_3")],
+        [InlineKeyboardButton("💎 Preset 4 (Novo Membro)", callback_data="bv_preset_preset_4")],
+        [InlineKeyboardButton("⭐ Preset 5 (Alerta da Galera)", callback_data="bv_preset_preset_5")],
+        [InlineKeyboardButton("🚀 Preset 6 (Passaporte Carimbado)", callback_data="bv_preset_preset_6")],
+        [InlineKeyboardButton("⬅️ Voltar ao Painel", callback_data="bv_cancelar")]
+    ])
+    
+    msg = (
+        "✨ **Escolha uma Mensagem Pronta (Template):**\n\n"
+        "Selecione abaixo uma das opções criadas para definir automaticamente o texto de boas-vindas do seu grupo:"
+    )
+    await query.message.edit_text(msg, reply_markup=teclado, parse_mode="Markdown")
+    await query.answer()
+
+async def cb_aplicar_preset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await verificar_permissao_callback(update, context):
+        return
+    
+    query = update.callback_query
+    data = query.data # Ex: bv_preset_preset_1
+    preset_key = data.replace("bv_preset_", "")
+    
+    if preset_key in MENSAGENS_PRINT_PRESETS:
+        texto_escolhido = MENSAGENS_PRINT_PRESETS[preset_key]
+        chat_id = update.effective_chat.id
+        salvar_no_mongo(chat_id, "texto", texto_escolhido)
+        await enviar_painel_principal_bv(context, chat_id, query=query, aviso_extra="Mensagem pronta aplicada com sucesso!")
+    else:
+        await query.answer("Preset não encontrado!", show_alert=True)
 
 async def cb_callback_botoes_especiais(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -331,7 +501,9 @@ async def montar_texto_formatado(context: ContextTypes.DEFAULT_TYPE, chat_id: in
 
     agora = datetime.now(FUSO_BR)
     dias_semana = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
-    texto_base = TEXTOS_BV.get(chat_id, "Olá {MENTION}, seja bem-vindo(a) ao {GROUPNAME}!")
+    
+    texto, _, _, _ = carregar_dados_bv(chat_id)
+    texto_base = texto if texto else "Olá {MENTION}, seja bem-vindo(a) ao {GROUPNAME}!"
 
     formatacoes = {
         "{ID}": str(user.id),
@@ -353,11 +525,13 @@ async def montar_texto_formatado(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     return texto_base
 
 async def enviar_mensagem_boas_vindas(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user):
-    if not STATUS_BV.get(chat_id, True):
+    _, _, _, status_atual = carregar_dados_bv(chat_id)
+    if not status_atual:
         return
+        
     texto_final = await montar_texto_formatado(context, chat_id, user)
-    botoes = BOTOES_BV.get(chat_id)
-    midia = MIDIAS_BV.get(chat_id)
+    _, _, botoes, _ = carregar_dados_bv(chat_id)
+    _, midia, _, _ = carregar_dados_bv(chat_id)
 
     try:
         if midia:
@@ -386,9 +560,7 @@ async def boas_vindas_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def callback_toggle_status_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    status_atual = STATUS_BV.get(chat_id, True)
-    novo_status = not status_atual
-    STATUS_BV[chat_id] = novo_status
+    novo_status = alternar_status_mongo(chat_id)
     aviso = "Boas-vindas ativadas!" if novo_status else "Boas-vindas desativadas!"
     await enviar_painel_principal_bv(context, chat_id, query=update.callback_query, aviso_extra=aviso)
     await update.callback_query.answer(aviso)
@@ -424,14 +596,15 @@ async def callback_edit_texto_bv(update: Update, context: ContextTypes.DEFAULT_T
 
 async def callback_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    texto = TEXTOS_BV.get(chat_id, "Nenhum texto configurado.")
+    texto, _, _, _ = carregar_dados_bv(chat_id)
+    texto_atual = texto if texto else "Nenhum texto configurado."
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Voltar", callback_data="bv_cancelar")]])
-    await update.callback_query.message.edit_text(f"📄 **Texto atual:**\n\n{texto}", reply_markup=teclado, parse_mode="Markdown")
+    await update.callback_query.message.edit_text(f"📄 **Texto atual:**\n\n{texto_atual}", reply_markup=teclado, parse_mode="Markdown")
     await update.callback_query.answer()
 
 async def callback_remover_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    TEXTOS_BV.pop(chat_id, None)
+    remover_do_mongo(chat_id, "texto")
     await enviar_painel_principal_bv(context, chat_id, query=update.callback_query, aviso_extra="Texto removido!")
 
 async def callback_edit_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -453,8 +626,9 @@ async def callback_edit_midia_bv(update: Update, context: ContextTypes.DEFAULT_T
 
 async def callback_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    if chat_id in MIDIAS_BV:
-        tipo, file_id, leg = MIDIAS_BV[chat_id]
+    _, midia, _, _ = carregar_dados_bv(chat_id)
+    if midia:
+        tipo, file_id, leg = midia
         if tipo == "photo":
             await context.bot.send_photo(chat_id, file_id, caption=f"Mídia salva. Legenda: {leg}")
         elif tipo == "video":
@@ -467,7 +641,7 @@ async def callback_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def callback_remover_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    MIDIAS_BV.pop(chat_id, None)
+    remover_do_mongo(chat_id, "midia")
     await enviar_painel_principal_bv(context, chat_id, query=update.callback_query, aviso_extra="Mídia removida!")
 
 async def callback_edit_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -505,15 +679,16 @@ async def callback_edit_botoes_bv(update: Update, context: ContextTypes.DEFAULT_
 
 async def callback_ver_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    if chat_id in BOTOES_BV:
-        await update.callback_query.message.reply_text("🔲 **Botões atuais:**", reply_markup=BOTOES_BV[chat_id])
+    _, _, botoes, _ = carregar_dados_bv(chat_id)
+    if botoes:
+        await update.callback_query.message.reply_text("🔲 **Botões atuais:**", reply_markup=botoes)
         await update.callback_query.answer()
     else:
-        await update.callback_query.answer("Nenhum botão configurado!", show_alert=True)
+        await update.callback_query.answer("Nenhuma botão configurado!", show_alert=True)
 
 async def callback_remover_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    BOTOES_BV.pop(chat_id, None)
+    remover_do_mongo(chat_id, "botoes")
     await enviar_painel_principal_bv(context, chat_id, query=update.callback_query, aviso_extra="Botões removidos!")
 
 async def callback_ver_completa_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
