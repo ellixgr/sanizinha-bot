@@ -79,6 +79,7 @@ try:
     collection_chats = db["chats_autorizados"]
     col_configs = db["config_grupos"]
     col_menu_adm = db["menu_adm"]
+    col_mensagens_usuarios = db["mensagens_usuarios"]
     print("✅ Conectado com sucesso ao MongoDB!")
 except Exception as e:
     print(f"⚠️ Erro crítico ao conectar no MongoDB: {e}")
@@ -165,6 +166,17 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
     user_id = user.id
     agora = time.time()
     
+    # Contabilizar mensagens de usuários nos grupos para o comando /perfil
+    if chat and chat.type in ["group", "supergroup"] and update.message:
+        try:
+            col_mensagens_usuarios.update_one(
+                {"chat_id": chat.id, "user_id": user_id},
+                {"$inc": {"total_mensagens": 1}},
+                upsert=True
+            )
+        except Exception:
+            pass
+
     if user_id == DONO_ID:
         return
 
@@ -253,7 +265,7 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
                         pass
                     raise ApplicationHandlerStop
 
-                if cfg.get("antigif", False) and message.animation:
+                if cfg.get("antigif", False) and (message.animation or (message.document and message.document.mime_type == "image/gif")):
                     try:
                         await message.delete()
                         await message.reply_text(f"⚠️ **{user.first_name}**, o envio de GIFs é proibido neste grupo!")
@@ -432,8 +444,42 @@ async def ping_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     inicio = time.time()
     msg = await update.message.reply_text("pong 🏓...")
     latencia = int((time.time() - inicio) * 1000)
-    uptime = int(time.time() - TEMPO_INICIAL)
-    resposta = f"🏓 **PONG!**\n⚡ Latência: `{latencia}ms`\n⏳ Uptime: `{uptime // 3600}h {(uptime % 3600) // 60}m`"
+    
+    uptime_segundos = int(time.time() - TEMPO_INICIAL)
+    horas = uptime_segundos // 3600
+    minutos = (uptime_segundos % 3600) // 60
+    
+    sistema = f"{platform.system()} ({platform.release()})"
+    
+    cpu_uso = 0.0
+    mem_total_gb = 0.0
+    mem_uso_gb = 0.0
+    
+    if psutil:
+        try:
+            cpu_uso = psutil.cpu_percent(interval=0.1)
+            mem = psutil.virtual_memory()
+            mem_total_gb = mem.total / (1024 ** 3)
+            mem_uso_gb = mem.used / (1024 ** 3)
+        except Exception:
+            pass
+
+    # Status CPU emoji conforme solicitado (< 50% 🟢, 50-85% 🟡, > 85% 🔴)
+    if cpu_uso < 50:
+        cpu_emoji = "🟢"
+    elif cpu_uso <= 85:
+        cpu_emoji = "🟡"
+    else:
+        cpu_emoji = "🔴"
+
+    resposta = (
+        f"🏓 **PONG & STATUS DO SISTEMA**\n\n"
+        f"⚡ **Velocidade de Resposta:** `{latencia}ms`\n"
+        f"⏳ **Tempo Online:** `{horas}h {minutos}m`\n"
+        f"💻 **Sistema/Hospedagem:** `{sistema}` (Python / Render)\n"
+        f"💾 **Armazenamento RAM:** `{mem_uso_gb:.2f} GB` / `{mem_total_gb:.2f} GB`\n"
+        f"🖥️ **Uso de CPU:** `{cpu_uso:.1f}%` {cpu_emoji}"
+    )
     await msg.edit_text(resposta, parse_mode="Markdown")
 
 async def suporte_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -541,14 +587,53 @@ async def figu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await m.edit_text(f"❌ Erro ao gerar figurinha: {e}")
 
 async def perfil_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
     user = update.effective_user
-    await update.message.reply_text(
-        f"╭━×🗿 **PERFIL** 🌹×━━╮\n"
+    
+    # Se respondeu a alguém, puxa o perfil do alvo
+    if update.message.reply_to_message and update.message.reply_to_message.from_user:
+        user = update.message.reply_to_message.from_user
+
+    # Buscar total de mensagens enviadas no grupo
+    total_msgs = 0
+    if chat and chat.type in ["group", "supergroup"]:
+        try:
+            doc_msg = col_mensagens_usuarios.find_one({"chat_id": chat.id, "user_id": user.id})
+            if doc_msg:
+                total_msgs = doc_msg.get("total_mensagens", 0)
+        except Exception:
+            pass
+
+    # Buscar bio e foto de perfil via Telegram API
+    bio = "Não informada"
+    try:
+        full_user = await context.bot.get_chat(user.id)
+        if full_user and full_user.bio:
+            bio = full_user.bio
+    except Exception:
+        pass
+
+    texto_perfil = (
+        f"╭━×🗿 **PERFIL DO USUÁRIO** 🌹×━━╮\n"
         f"┃ 👤 **Nome:** {user.first_name}\n"
         f"┃ 🆔 **ID:** `{user.id}`\n"
-        f"╰━━━━━━━━━━━━━╯",
-        parse_mode="Markdown"
+        f"┃ 💬 **Mensagens no Grupo:** `{total_msgs}`\n"
+        f"┃ 📝 **Bio:** {bio}\n"
+        f"╰━━━━━━━━━━━━━━━━━━━━━╯"
     )
+
+    # Tentar puxar a foto de perfil
+    try:
+        photos = await context.bot.get_user_profile_photos(user.id, limit=1)
+        if photos and photos.total_count > 0:
+            file_id = photos.photos[0][-1].file_id
+            await update.message.reply_photo(photo=file_id, caption=texto_perfil, parse_mode="Markdown")
+            return
+    except Exception:
+        pass
+
+    # Se não tiver foto ou ocorrer erro, manda apenas o texto
+    await update.message.reply_text(texto_perfil, parse_mode="Markdown")
 
 async def jogos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     teclado = InlineKeyboardMarkup([
