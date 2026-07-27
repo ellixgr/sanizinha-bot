@@ -22,23 +22,24 @@ from telegram.ext import (
     filters
 )
 
-from bemvindo import registrar_comandos_bv
+from comandos.bemvindo import registrar_comandos_bv
 registrar_comandos_bv(app)
 
-from play import setup_play
+from comandos.play import setup_play
 setup_play(app)
 
-from velha import setup_velha
-from dama import setup_dama
-from forca import setup_forca
-from memoria import setup_memoria
-from xadrez import setup_xadrez
+from comandos.jogos.velha import setup_velha
+from comandos.jogos.dama import setup_dama
+from comandos.jogos.forca import setup_forca
+from comandos.jogos.memoria import setup_memoria
+from comandos.jogos.xadrez import setup_xadrez
 
 setup_velha(app)
 setup_dama(app)
 setup_forca(app)
 setup_memoria(app)
 setup_xadrez(app)
+
 
 try:
     import psutil
