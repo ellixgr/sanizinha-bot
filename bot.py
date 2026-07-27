@@ -93,6 +93,7 @@ bloqueio_temporario = {}
 pagamentos_notificados = set() 
 FLOOD_CONTROL = defaultdict(list)
 USER_MSG_CACHE = defaultdict(list)
+ADVERTENCIAS_LINK = defaultdict(dict)  # Armazena avisos de link por chat e usuário
 PERMISSOES_SELECIONADAS = {}
 
 OPCOES_PERMISSOES = {
@@ -116,7 +117,11 @@ def get_config(chat_id: int):
                 "antiimagem": False,
                 "antifigurinha": False,
                 "antitrava": True,
-                "antienk_forward": True
+                "antienk_forward": True,
+                "antivideo": False,
+                "antiarquivo": False,
+                "antiaudio": False,
+                "antigif": False
             }
             col_configs.update_one({"chat_id": chat_id}, {"$set": config_padrao}, upsert=True)
             return config_padrao
@@ -124,7 +129,8 @@ def get_config(chat_id: int):
     except Exception:
         return {
             "antilink": True, "antiflood": True, "antiimagem": False,
-            "antifigurinha": False, "antitrava": True, "antienk_forward": True
+            "antifigurinha": False, "antitrava": True, "antienk_forward": True,
+            "antivideo": False, "antiarquivo": False, "antiaudio": False, "antigif": False
         }
 
 def salvar_config_mongo(chat_id: int, cfg: dict):
@@ -165,29 +171,38 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
     # Se for em grupo, aplicar proteções de chat
     if chat and chat.type in ["group", "supergroup"]:
         message = update.message
-        if message and message.text and not message.text.startswith('/'):
+        if message:
             if not await is_user_admin(update, context):
                 cfg = get_config(chat.id)
                 texto = message.text or message.caption or ""
 
-                if cfg.get("antilink", True):
-                    padrao_link = r"(https?://\S+|t\.me/\S+|www\.\S+|@[a-zA-Z0-9_]{5,})"
-                    if re.search(padrao_link, texto):
-                        try:
-                            await message.delete()
-                            await message.reply_text(f"⚠️ **{user.first_name}**, links não são permitidos aqui!")
-                        except Exception:
-                            pass
-                        raise ApplicationHandlerStop
-
-                if cfg.get("antienk_forward", True) and message.forward_date:
+                # 1. Antilink Completo (Links, Menções de Grupo, Encaminhados de Canal/Grupo)
+                is_forward_proibido = cfg.get("antienk_forward", True) and (message.forward_date or message.forward_origin)
+                padrao_link = r"(https?://\S+|t\.me/\S+|www\.\S+|@[a-zA-Z0-9_]{5,})"
+                tem_link_ou_mencao = bool(re.search(padrao_link, texto)) or message.entities and any(e.type in ["text_link", "mention"] for e in message.entities)
+                
+                if cfg.get("antilink", True) and (tem_link_ou_mencao or is_forward_proibido):
                     try:
                         await message.delete()
-                        await message.reply_text(f"⚠️ **{user.first_name}**, mensagens encaminhadas são proibidas!")
+                        
+                        # Sistema de avisos para link/encaminhamento
+                        if chat.id not in ADVERTENCIAS_LINK:
+                            ADVERTENCIAS_LINK[chat.id] = {}
+                        
+                        avisos_usuario = ADVERTENCIAS_LINK[chat.id].get(user_id, 0) + 1
+                        ADVERTENCIAS_LINK[chat.id][user_id] = avisos_usuario
+                        
+                        if avisos_usuario == 1:
+                            await message.reply_text(f"⚠️ **{user.first_name}**, links, menções ou conteúdos encaminhados não são permitidos aqui! Este é o **1º aviso**.")
+                        else:
+                            await context.bot.ban_chat_member(chat.id, user_id)
+                            await message.reply_text(f"🛡️ **{user.first_name}** foi removido/banido por reincidência de envio de links/encaminhados.")
+                            ADVERTENCIAS_LINK[chat.id][user_id] = 0
                     except Exception:
                         pass
                     raise ApplicationHandlerStop
 
+                # 2. Anti Trava
                 if cfg.get("antitrava", True) and len(texto) > 1500:
                     try:
                         await message.delete()
@@ -197,11 +212,59 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
                         pass
                     raise ApplicationHandlerStop
 
+                # 3. Anti Mídias Específicas (Imagem, Figurinha, Vídeo, Arquivo, Áudio, Gif)
+                if cfg.get("antiimagem", False) and message.photo:
+                    try:
+                        await message.delete()
+                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de imagens é proibido neste grupo!")
+                    except Exception:
+                        pass
+                    raise ApplicationHandlerStop
+
+                if cfg.get("antifigurinha", False) and message.sticker:
+                    try:
+                        await message.delete()
+                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de figurinhas é proibido neste grupo!")
+                    except Exception:
+                        pass
+                    raise ApplicationHandlerStop
+
+                if cfg.get("antivideo", False) and message.video:
+                    try:
+                        await message.delete()
+                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de vídeos é proibido neste grupo!")
+                    except Exception:
+                        pass
+                    raise ApplicationHandlerStop
+
+                if cfg.get("antiarquivo", False) and (message.document or message.audio):
+                    try:
+                        await message.delete()
+                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de arquivos/documentos é proibido neste grupo!")
+                    except Exception:
+                        pass
+                    raise ApplicationHandlerStop
+
+                if cfg.get("antiaudio", False) and (message.voice or message.video_note):
+                    try:
+                        await message.delete()
+                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de áudios/mensagens de voz é proibido neste grupo!")
+                    except Exception:
+                        pass
+                    raise ApplicationHandlerStop
+
+                if cfg.get("antigif", False) and message.animation:
+                    try:
+                        await message.delete()
+                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de GIFs é proibido neste grupo!")
+                    except Exception:
+                        pass
+                    raise ApplicationHandlerStop
+
     if update.message and update.message.text and update.message.text.startswith('/'):
         cmd = update.message.text.split()[0].split('@')[0].lower()
         allowed_public = ['/start', '/suporte', '/suport', '/ping', '/id', '/perfil', '/jogos', '/figu', '/sticker']
         if cmd not in allowed_public and not await is_user_admin(update, context):
-            # Deixar passar para verificação interna se necessário
             pass
 
     if user_id in bloqueio_temporario:
@@ -333,7 +396,7 @@ async def comandos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = (
         "📜 **LISTA DE COMANDOS DO BOT**\n\n"
         "• `/start` - Inicia o bot\n• `/id` - Mostra IDs\n• `/protecao` - Painel de segurança\n"
-        "• `/ban` - Bane usuário\n• `/mutar` / `/desmutar` - Moderação\n• `/marcar` / `/totag` - Menções em massa\n"
+        "• `/ban` - Bane usuário\n• `/mutar` / `/desmutar` - Moderação\n"
         "• `/figu` - Cria figurinhas\n• `/ping` - Latência\n• `/jogos` - Central de Jogos"
     )
     await update.message.reply_text(texto, parse_mode="Markdown")
@@ -424,7 +487,7 @@ async def mutar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     alvo = update.message.reply_to_message.from_user
     try:
         await context.bot.restrict_chat_member(
-            chat.id if 'chat' in locals() else update.effective_chat.id,
+            update.effective_chat.id,
             alvo.id,
             permissions=ChatPermissions(can_send_messages=False)
         )
@@ -495,15 +558,24 @@ async def jogos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def protecao_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_user_admin(update, context):
-        await update.message.reply_text("⚠️ Apenas administradores!")
+        await update.message.reply_text("⚠️ Apenas administradores podem gerenciar as proteções!")
         return
     chat_id = update.effective_chat.id
     cfg = get_config(chat_id)
+    
     teclado = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🛡️ Antilink: {'✅' if cfg.get('antilink') else '❌'}", callback_data=f"toggle_{chat_id}_antilink")],
-        [InlineKeyboardButton(f"⚡ Anti-Flood: {'✅' if cfg.get('antiflood') else '❌'}", callback_data=f"toggle_{chat_id}_antiflood")]
+        [InlineKeyboardButton(f"🛡️ Antilink: {'✅' if cfg.get('antilink') else '❌'}", callback_data=f"toggle_{chat_id}_antilink"),
+         InlineKeyboardButton(f"⚡ Anti-Flood: {'✅' if cfg.get('antiflood') else '❌'}", callback_data=f"toggle_{chat_id}_antiflood")],
+        [InlineKeyboardButton(f"🖼️ Anti-Imagem: {'✅' if cfg.get('antiimagem') else '❌'}", callback_data=f"toggle_{chat_id}_antiimagem"),
+         InlineKeyboardButton(f"🎭 Anti-Figurinha: {'✅' if cfg.get('antifigurinha') else '❌'}", callback_data=f"toggle_{chat_id}_antifigurinha")],
+        [InlineKeyboardButton(f"📹 Anti-Vídeo: {'✅' if cfg.get('antivideo') else '❌'}", callback_data=f"toggle_{chat_id}_antivideo"),
+         InlineKeyboardButton(f"📁 Anti-Arquivo: {'✅' if cfg.get('antiarquivo') else '❌'}", callback_data=f"toggle_{chat_id}_antiarquivo")],
+        [InlineKeyboardButton(f"🎙️ Anti-Áudio: {'✅' if cfg.get('antiaudio') else '❌'}", callback_data=f"toggle_{chat_id}_antiaudio"),
+         InlineKeyboardButton(f"🎞️ Anti-Gif: {'✅' if cfg.get('antigif') else '❌'}", callback_data=f"toggle_{chat_id}_antigif")],
+        [InlineKeyboardButton(f"🚨 Anti-Trava: {'✅' if cfg.get('antitrava') else '❌'}", callback_data=f"toggle_{chat_id}_antitrava"),
+         InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")]
     ])
-    await update.message.reply_text("⚙️ **Central de Proteções Avançadas**", reply_markup=teclado)
+    await update.message.reply_text("⚙️ **Central de Proteções Avançadas**\nClique nos botões abaixo para ativar ou desativar cada proteção:", reply_markup=teclado)
 
 # ================= CALLBACK QUERY HANDLER UNIFICADO =================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -513,18 +585,63 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id_atual = query.message.chat.id
 
     if data.startswith("toggle_"):
+        # Validar se quem clicou é administrador
+        if chat_id_atual and chat_id_atual < 0: # É um grupo
+            try:
+                member = await context.bot.get_chat_member(chat_id_atual, user_id)
+                if member.status not in ["creator", "administrator"] and user_id != DONO_ID:
+                    await query.answer("⚠️ Apenas administradores podem alterar as proteções!", show_alert=True)
+                    return
+            except Exception:
+                pass
+
         _, chat_id_str, recurso = data.split("_", 2)
         chat_id = int(chat_id_str)
         cfg = get_config(chat_id)
         if recurso in cfg:
             cfg[recurso] = not cfg[recurso]
             salvar_config_mongo(chat_id, cfg)
+            
         teclado = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"🛡️ Antilink: {'✅' if cfg.get('antilink') else '❌'}", callback_data=f"toggle_{chat_id}_antilink")],
-            [InlineKeyboardButton(f"⚡ Anti-Flood: {'✅' if cfg.get('antiflood') else '❌'}", callback_data=f"toggle_{chat_id}_antiflood")]
+            [InlineKeyboardButton(f"🛡️ Antilink: {'✅' if cfg.get('antilink') else '❌'}", callback_data=f"toggle_{chat_id}_antilink"),
+             InlineKeyboardButton(f"⚡ Anti-Flood: {'✅' if cfg.get('antiflood') else '❌'}", callback_data=f"toggle_{chat_id}_antiflood")],
+            [InlineKeyboardButton(f"🖼️ Anti-Imagem: {'✅' if cfg.get('antiimagem') else '❌'}", callback_data=f"toggle_{chat_id}_antiimagem"),
+             InlineKeyboardButton(f"🎭 Anti-Figurinha: {'✅' if cfg.get('antifigurinha') else '❌'}", callback_data=f"toggle_{chat_id}_antifigurinha")],
+            [InlineKeyboardButton(f"📹 Anti-Vídeo: {'✅' if cfg.get('antivideo') else '❌'}", callback_data=f"toggle_{chat_id}_antivideo"),
+             InlineKeyboardButton(f"📁 Anti-Arquivo: {'✅' if cfg.get('antiarquivo') else '❌'}", callback_data=f"toggle_{chat_id}_antiarquivo")],
+            [InlineKeyboardButton(f"🎙️ Anti-Áudio: {'✅' if cfg.get('antiaudio') else '❌'}", callback_data=f"toggle_{chat_id}_antiaudio"),
+             InlineKeyboardButton(f"🎞️ Anti-Gif: {'✅' if cfg.get('antigif') else '❌'}", callback_data=f"toggle_{chat_id}_antigif")],
+            [InlineKeyboardButton(f"🚨 Anti-Trava: {'✅' if cfg.get('antitrava') else '❌'}", callback_data=f"toggle_{chat_id}_antitrava"),
+             InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")]
         ])
-        await query.edit_message_text("⚙️ **Central de Proteções atualizada!**", reply_markup=teclado)
+        await query.edit_message_text("⚙️ **Central de Proteções atualizada com sucesso!**", reply_markup=teclado)
         await query.answer("Configuração alterada!")
+        return
+
+    if data.startswith("painel_prot_"):
+        chat_id = int(data.split("_")[2])
+        try:
+            member = await context.bot.get_chat_member(chat_id, user_id)
+            if member.status not in ["creator", "administrator"] and user_id != DONO_ID:
+                await query.answer("⚠️ Apenas administradores!", show_alert=True)
+                return
+        except Exception:
+            pass
+        cfg = get_config(chat_id)
+        teclado = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"🛡️ Antilink: {'✅' if cfg.get('antilink') else '❌'}", callback_data=f"toggle_{chat_id}_antilink"),
+             InlineKeyboardButton(f"⚡ Anti-Flood: {'✅' if cfg.get('antiflood') else '❌'}", callback_data=f"toggle_{chat_id}_antiflood")],
+            [InlineKeyboardButton(f"🖼️ Anti-Imagem: {'✅' if cfg.get('antiimagem') else '❌'}", callback_data=f"toggle_{chat_id}_antiimagem"),
+             InlineKeyboardButton(f"🎭 Anti-Figurinha: {'✅' if cfg.get('antifigurinha') else '❌'}", callback_data=f"toggle_{chat_id}_antifigurinha")],
+            [InlineKeyboardButton(f"📹 Anti-Vídeo: {'✅' if cfg.get('antivideo') else '❌'}", callback_data=f"toggle_{chat_id}_antivideo"),
+             InlineKeyboardButton(f"📁 Anti-Arquivo: {'✅' if cfg.get('antiarquivo') else '❌'}", callback_data=f"toggle_{chat_id}_antiarquivo")],
+            [InlineKeyboardButton(f"🎙️ Anti-Áudio: {'✅' if cfg.get('antiaudio') else '❌'}", callback_data=f"toggle_{chat_id}_antiaudio"),
+             InlineKeyboardButton(f"🎞️ Anti-Gif: {'✅' if cfg.get('antigif') else '❌'}", callback_data=f"toggle_{chat_id}_antigif")],
+            [InlineKeyboardButton(f"🚨 Anti-Trava: {'✅' if cfg.get('antitrava') else '❌'}", callback_data=f"toggle_{chat_id}_antitrava"),
+             InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")]
+        ])
+        await query.message.edit_text("⚙️ **Central de Proteções do Grupo**", reply_markup=teclado)
+        await query.answer()
         return
 
     if data == "cmd_membros":
