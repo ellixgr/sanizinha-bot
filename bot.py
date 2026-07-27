@@ -55,39 +55,65 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
 
-    if chat.type in ["group", "supergroup"]:
-        await update.message.reply_text(f"🛡️ Olá {user.mention_markdown()}! Estou ativo neste grupo.", parse_mode="Markdown")
-        return
-
-    teclado_privado = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📜 Lista de Comandos", callback_data="ver_comandos")],
+    teclado_painel = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📜 Comandos de Membros", callback_data="menu_membros")],
+        [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ])
+
+    if chat.type in ["group", "supergroup"]:
+        await update.message.reply_text(
+            f"🔥 **Eae, {user.first_name}!** O bot está ativo neste grupo.\nEscolha uma das categorias abaixo para ver os comandos:",
+            reply_markup=teclado_painel,
+            parse_mode="Markdown"
+        )
+        return
     
     await update.message.reply_text(
         f"🔥 **Eae, {user.first_name}!** Escolha o que deseja fazer abaixo:",
-        reply_markup=teclado_privado,
+        reply_markup=teclado_painel,
         parse_mode="Markdown"
     )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    if query.data == "ver_comandos":
+    
+    if query.data == "menu_membros":
         await query.answer()
-        texto_ajuda = (
-            "🤖 **Lista de Comandos Disponíveis:**\n\n"
+        texto_membros = (
+            "📜 **Comandos para Membros:**\n\n"
             "🏓 `/ping` - Status de hardware, RAM e latência\n"
             "👤 `/perfil` - Suas estatísticas completas, bio e mídias\n"
             "🆔 `/id` - Mostra seu ID e do chat\n"
-            "📥 `/play` ou `/dl` - Baixa vídeos e músicas do YouTube\n\n"
-            "🛡️ *Em Grupos (Admin):*\n"
-            "🔨 `/ban` - Bane o usuário respondido\n"
-            "🔇 `/mutar` - Muta o usuário respondido\n"
-            "⭐ `/promover` - Promove a admin\n"
-            "📉 `/rebaixar` - Rebaixa admin\n"
-            "📢 `/marcar` - Marca todos"
+            "📥 `/play` ou `/dl` - Baixa vídeos e músicas do YouTube"
         )
-        await query.message.edit_text(texto_ajuda, parse_mode="Markdown")
+        await query.message.edit_text(texto_membros, parse_mode="Markdown")
+        
+    elif query.data == "menu_adm":
+        await query.answer()
+        texto_adm = (
+            "🛡️ **Comandos para Administradores:**\n\n"
+            "🔨 `/ban` - Bane o usuário respondido\n"
+            "🔇 `/mutar` / `/desmutar` - Silencia ou libera o usuário\n"
+            "⭐ `/promover` - Promove a administrador\n"
+            "📉 `/rebaixar` - Rebaixa administrador\n"
+            "📢 `/marcar` - Marca todos do grupo\n"
+            "📌 `/citar` - Cita mídias/textos marcando todos\n"
+            "⚙️ `/protecao` - Configura as travas de segurança"
+        )
+        await query.message.edit_text(texto_adm, parse_mode="Markdown")
+        
+    elif query.data == "ver_comandos":
+        await query.answer()
+        texto_ajuda = (
+            "🤖 **Painel de Ajuda Geral:**\n"
+            "Use os botões abaixo para navegar entre os comandos de membros e administradores."
+        )
+        teclado_painel = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📜 Comandos de Membros", callback_data="menu_membros")],
+            [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")]
+        ])
+        await query.message.edit_text(texto_ajuda, reply_markup=teclado_painel, parse_mode="Markdown")
 
 def main():
     # Inicia o servidor Flask em segundo plano
