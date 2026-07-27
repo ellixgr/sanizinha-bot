@@ -7,12 +7,11 @@ from telegram.ext import CommandHandler, ContextTypes
 
 ARQUIVO_ESTADO_DEPLOY = "deploy_status.json"
 
-async def checar_deploy_pendente_ao_iniciar(bot):
-    """Função chamada logo após o bot ligar para avisar que o deploy terminou"""
+async def checar_deploy_pendente_ao_iniciar(application):
+    """Função chamada logo após o bot ligar para verificar se há um deploy pendente"""
     if not os.path.exists(ARQUIVO_ESTADO_DEPLOY):
         return
 
-    # Aguarda 3 segundos para garantir que o bot está totalmente conectado
     await asyncio.sleep(3)
 
     try:
@@ -24,7 +23,7 @@ async def checar_deploy_pendente_ao_iniciar(bot):
         deploy_id = dados.get("deploy_id")
 
         if chat_id and message_id:
-            await bot.edit_message_text(
+            await application.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
                 text=f"✅ **Deploy Concluído com Sucesso!**\n\nID: `{deploy_id}`\nO bot foi reiniciado e já está online.",
@@ -35,62 +34,6 @@ async def checar_deploy_pendente_ao_iniciar(bot):
     finally:
         if os.path.exists(ARQUIVO_ESTADO_DEPLOY):
             os.remove(ARQUIVO_ESTADO_DEPLOY)
-
-async def monitorar_status_deploy(bot, chat_id, message_id, api_key, service_id, deploy_id):
-    url = f"https://api.render.com/v1/services/{service_id}/deploys/{deploy_id}"
-    headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-
-    await asyncio.sleep(5)
-
-    tentativas_max = 60
-    tentativa = 0
-    ja_avisou_building = False
-
-    async with aiohttp.ClientSession() as session:
-        while tentativa < tentativas_max:
-            try:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        deploy_info = data.get("deploy", data)
-                        status = deploy_info.get("status")
-
-                        if status == "building" and not ja_avisou_building:
-                            ja_avisou_building = True
-                            try:
-                                await bot.edit_message_text(
-                                    chat_id=chat_id,
-                                    message_id=message_id,
-                                    text=f"🚀 **Deploy Iniciado no Render!**\n\nID: `{deploy_id}`\nO código está sendo compilado...",
-                                    parse_mode="Markdown"
-                                )
-                            except Exception:
-                                pass
-
-                        elif status == "live":
-                            with open(ARQUIVO_ESTADO_DEPLOY, "w", encoding="utf-8") as f:
-                                json.dump({"chat_id": chat_id, "message_id": message_id, "deploy_id": deploy_id}, f)
-                            break
-
-                        elif status in ["build_failed", "canceled", "update_failed"]:
-                            try:
-                                await bot.edit_message_text(
-                                    chat_id=chat_id,
-                                    message_id=message_id,
-                                    text=f"❌ **O Deploy Falhou!**\n\nID: `{deploy_id}`\nStatus no Render: `{status}`",
-                                    parse_mode="Markdown"
-                                )
-                            except Exception:
-                                pass
-                            break
-            except Exception:
-                pass
-
-            tentativa += 1
-            await asyncio.sleep(10)
 
 async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -141,23 +84,20 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
                     deploy_data = data.get("deploy", data)
                     deploy_id = deploy_data.get("id") or data.get("id", "Desconhecido")
                     
-                    texto_inicial = f"🔄 **Clear Build Cache & Deploy disparado!**\n\nID do Deploy: `{deploy_id}`\nAguardando o Render iniciar a compilação..."
+                    # Salva imediatamente o arquivo para o bot novo avisar assim que subir
+                    with open(ARQUIVO_ESTADO_DEPLOY, "w", encoding="utf-8") as f:
+                        json.dump({
+                            "chat_id": msg.chat_id, 
+                            "message_id": msg.message_id, 
+                            "deploy_id": deploy_id
+                        }, f)
+
+                    texto_inicial = f"🔄 **Clear Build Cache & Deploy disparado!**\n\nID: `{deploy_id}`\nO Render está compilando. O bot vai se atualizar assim que religar..."
                     
                     if update.callback_query:
                         await msg.edit_text(texto_inicial, parse_mode="Markdown")
                     else:
-                        msg = await msg.edit_text(texto_inicial, parse_mode="Markdown")
-
-                    context.application.create_task(
-                        monitorar_status_deploy(
-                            context.bot,
-                            msg.chat_id,
-                            msg.message_id,
-                            api_key,
-                            service_id,
-                            deploy_id
-                        )
-                    )
+                        await msg.edit_text(texto_inicial, parse_mode="Markdown")
                 else:
                     erro_texto = await response.text()
                     texto_falha = f"❌ Erro ao comunicar com a API do Render:\n`{erro_texto}`"
@@ -169,12 +109,8 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
 async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await executar_clear_deploy(update, context)
 
-async def ao_iniciar_app(application):
-    """Hook correto do python-telegram-bot executado após o event loop iniciar"""
-    await checar_deploy_pendente_ao_iniciar(application.bot)
-
 def registrar_deploy(app):
     app.add_handler(CommandHandler("cleardeploy", cmd_clear_deploy))
     
-    # Atribui a função ao post_init para rodar no momento certo sem quebrar o loop
-    app.post_init = ao_iniciar_app
+    # Adiciona a checagem diretamente na fila de inicialização segura do bot sem usar create_task manual
+    app.job_queue.run_once(lambda ctx: asyncio.create_task(checar_deploy_pendente_ao_iniciar(app)), when=1) if app.job_queue else None
