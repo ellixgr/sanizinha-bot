@@ -78,6 +78,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    chat_id = update.effective_chat.id
     
     if query.data == "menu_membros":
         await query.answer()
@@ -104,7 +105,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📢 `/marcar` - Marca todos do grupo\n"
             "📌 `/citar` - Cita mídias/textos marcando todos\n"
             "⚙️ `/protecao` - Configura as travas de segurança\n"
-            "👋 Configurar Bem-Vindo via comando no grupo"
+            "👋 Configurar Bem-Vindo abaixo:"
         )
         teclado_adm = InlineKeyboardMarkup([
             [InlineKeyboardButton("👋 Configurar Bem-Vindo", callback_data="config_bemvindo")],
@@ -113,15 +114,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto_adm, reply_markup=teclado_adm, parse_mode="Markdown")
 
     elif query.data == "config_bemvindo":
-        await query.answer("Para configurar o bem-vindo, use o comando dedicado no seu grupo!", show_alert=True)
+        await query.answer()
+        try:
+            from comandos.bemvindo import enviar_painel_principal_bv
+            await enviar_painel_principal_bv(context, chat_id, query=query)
+        except Exception as e:
+            await query.message.reply_text(f"⚠️ Erro ao abrir o painel de boas-vindas: {e}")
 
     elif query.data == "botao_ping":
         await query.answer("Calculando ping...", show_alert=False)
-        # Importa a função de ping do módulo correspondente para executar diretamente pelo botão
         from comandos.ping import ping_cmd
         await ping_cmd(update, context)
 
-    elif query.data == "voltar_menu" or query.data == "ver_comandos":
+    elif query.data == "voltar_menu" or query.data == "ver_comandos" or query.data == "voltar_principal_grupo":
         await query.answer()
         texto_ajuda = (
             "🔥 **Painel Principal:**\n"
