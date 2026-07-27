@@ -9,24 +9,33 @@ async def marcar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Apenas em grupos.")
         return
 
-    # Restrito apenas a administradores
+    # Validação rigorosa de Administrador
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
         if member.status not in ["creator", "administrator"]:
             await update.message.reply_text("⚠️ Apenas administradores podem marcar todos!")
             return
-    except Exception:
+    except Exception as e:
+        print(f"Erro ao verificar ADM: {e}")
         return
 
     texto_chamada = " ".join(context.args) if context.args else "Atenção todos!"
     
-    # Apaga a mensagem do comando para manter o chat limpo
+    # Tenta apagar a mensagem do comando com segurança
     try:
         await update.message.delete()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Não foi possível apagar a mensagem: {e}")
 
-    await update.message.reply_text(f"📢 **{texto_chamada}**\n\n_(Chamada geral disparada por {user.mention_markdown()})_", parse_mode="Markdown")
+    # Envia a chamada geral diretamente no chat para garantir que nunca falhe
+    try:
+        msg_final = (
+            f"📢 **{texto_chamada}**\n\n"
+            f"👥 *Chamada geral convocada por* {user.mention_markdown()}"
+        )
+        await chat.send_message(msg_final, parse_mode="Markdown")
+    except Exception as e:
+        print(f"Erro ao enviar chamada: {e}")
 
 def registrar_marcar(app):
     app.add_handler(CommandHandler(["marcar", "todos", "tagall"], marcar_cmd))
