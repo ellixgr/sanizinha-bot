@@ -9,6 +9,7 @@ async def marcar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Apenas em grupos.")
         return
 
+    # Restrito apenas a administradores
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
         if member.status not in ["creator", "administrator"]:
@@ -19,7 +20,7 @@ async def marcar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     texto_chamada = " ".join(context.args) if context.args else "Atenção todos!"
     
-    # Mensagem simulando marcação em massa via menções ocultas seguras
+    # Apaga a mensagem do comando para manter o chat limpo
     try:
         await update.message.delete()
     except Exception:
