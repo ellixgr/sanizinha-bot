@@ -118,11 +118,7 @@ def get_config(chat_id: int):
                 "antiimagem": False,
                 "antifigurinha": False,
                 "antitrava": True,
-                "antienk_forward": True,
-                "antivideo": False,
-                "antiarquivo": False,
-                "antiaudio": False,
-                "antigif": False
+                "antienk_forward": True
             }
             col_configs.update_one({"chat_id": chat_id}, {"$set": config_padrao}, upsert=True)
             return config_padrao
@@ -130,8 +126,7 @@ def get_config(chat_id: int):
     except Exception:
         return {
             "antilink": True, "antiflood": True, "antiimagem": False,
-            "antifigurinha": False, "antitrava": True, "antienk_forward": True,
-            "antivideo": False, "antiarquivo": False, "antiaudio": False, "antigif": False
+            "antifigurinha": False, "antitrava": True, "antienk_forward": True
         }
 
 def salvar_config_mongo(chat_id: int, cfg: dict):
@@ -237,7 +232,7 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
                         pass
                     raise ApplicationHandlerStop
 
-                # 3. Anti Mídias Específicas
+                # 3. Anti Mídias Específicas Restantes
                 if cfg.get("antiimagem", False) and message.photo:
                     try:
                         await message.delete()
@@ -250,38 +245,6 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
                     try:
                         await message.delete()
                         await message.reply_text(f"⚠️ **{user.first_name}**, o envio de figurinhas é proibido neste grupo!")
-                    except Exception:
-                        pass
-                    raise ApplicationHandlerStop
-
-                if cfg.get("antivideo", False) and message.video:
-                    try:
-                        await message.delete()
-                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de vídeos é proibido neste grupo!")
-                    except Exception:
-                        pass
-                    raise ApplicationHandlerStop
-
-                if cfg.get("antiarquivo", False) and (message.document or message.audio):
-                    try:
-                        await message.delete()
-                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de arquivos/documentos é proibido neste grupo!")
-                    except Exception:
-                        pass
-                    raise ApplicationHandlerStop
-
-                if cfg.get("antiaudio", False) and (message.voice or message.video_note):
-                    try:
-                        await message.delete()
-                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de áudios/mensagens de voz é proibido neste grupo!")
-                    except Exception:
-                        pass
-                    raise ApplicationHandlerStop
-
-                if cfg.get("antigif", False) and (message.animation or (message.document and message.document.mime_type == "image/gif")):
-                    try:
-                        await message.delete()
-                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de GIFs é proibido neste grupo!")
                     except Exception:
                         pass
                     raise ApplicationHandlerStop
@@ -639,7 +602,8 @@ async def jogos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     teclado = InlineKeyboardMarkup([
         [InlineKeyboardButton("🎮 Jogo da Velha", callback_data="jogar_velha"), InlineKeyboardButton("🎯 Forca", callback_data="jogar_forca")],
         [InlineKeyboardButton("⭕ Dama", callback_data="jogar_dama"), InlineKeyboardButton("🧠 Memória", callback_data="jogar_memoria")],
-        [InlineKeyboardButton("♟️ Xadrez", callback_data="jogar_xadrez")]
+        [InlineKeyboardButton("♟️ Xadrez", callback_data="jogar_xadrez")],
+        [InlineKeyboardButton("⬅️ Voltar", callback_data="cmd_membros")]
     ])
     await update.message.reply_text("🕹️ **Central de Jogos**\nEscolha uma opção:", reply_markup=teclado)
 
@@ -655,12 +619,9 @@ async def protecao_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton(f"⚡ Anti-Flood: {'✅' if cfg.get('antiflood') else '❌'}", callback_data=f"toggle_{chat_id}_antiflood")],
         [InlineKeyboardButton(f"🖼️ Anti-Imagem: {'✅' if cfg.get('antiimagem') else '❌'}", callback_data=f"toggle_{chat_id}_antiimagem"),
          InlineKeyboardButton(f"🎭 Anti-Figurinha: {'✅' if cfg.get('antifigurinha') else '❌'}", callback_data=f"toggle_{chat_id}_antifigurinha")],
-        [InlineKeyboardButton(f"📹 Anti-Vídeo: {'✅' if cfg.get('antivideo') else '❌'}", callback_data=f"toggle_{chat_id}_antivideo"),
-         InlineKeyboardButton(f"📁 Anti-Arquivo: {'✅' if cfg.get('antiarquivo') else '❌'}", callback_data=f"toggle_{chat_id}_antiarquivo")],
-        [InlineKeyboardButton(f"🎙️ Anti-Áudio: {'✅' if cfg.get('antiaudio') else '❌'}", callback_data=f"toggle_{chat_id}_antiaudio"),
-         InlineKeyboardButton(f"🎞️ Anti-Gif: {'✅' if cfg.get('antigif') else '❌'}", callback_data=f"toggle_{chat_id}_antigif")],
         [InlineKeyboardButton(f"🚨 Anti-Trava: {'✅' if cfg.get('antitrava') else '❌'}", callback_data=f"toggle_{chat_id}_antitrava"),
-         InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")]
+         InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")],
+        [InlineKeyboardButton("⬅️ Voltar", callback_data="cmd_adm")]
     ])
     await update.message.reply_text("⚙️ **Central de Proteções Avançadas**\nClique nos botões abaixo para ativar ou desativar cada proteção:", reply_markup=teclado)
 
@@ -693,12 +654,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton(f"⚡ Anti-Flood: {'✅' if cfg.get('antiflood') else '❌'}", callback_data=f"toggle_{chat_id}_antiflood")],
             [InlineKeyboardButton(f"🖼️ Anti-Imagem: {'✅' if cfg.get('antiimagem') else '❌'}", callback_data=f"toggle_{chat_id}_antiimagem"),
              InlineKeyboardButton(f"🎭 Anti-Figurinha: {'✅' if cfg.get('antifigurinha') else '❌'}", callback_data=f"toggle_{chat_id}_antifigurinha")],
-            [InlineKeyboardButton(f"📹 Anti-Vídeo: {'✅' if cfg.get('antivideo') else '❌'}", callback_data=f"toggle_{chat_id}_antivideo"),
-             InlineKeyboardButton(f"📁 Anti-Arquivo: {'✅' if cfg.get('antiarquivo') else '❌'}", callback_data=f"toggle_{chat_id}_antiarquivo")],
-            [InlineKeyboardButton(f"🎙️ Anti-Áudio: {'✅' if cfg.get('antiaudio') else '❌'}", callback_data=f"toggle_{chat_id}_antiaudio"),
-             InlineKeyboardButton(f"🎞️ Anti-Gif: {'✅' if cfg.get('antigif') else '❌'}", callback_data=f"toggle_{chat_id}_antigif")],
             [InlineKeyboardButton(f"🚨 Anti-Trava: {'✅' if cfg.get('antitrava') else '❌'}", callback_data=f"toggle_{chat_id}_antitrava"),
-             InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")]
+             InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")],
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="cmd_adm")]
         ])
         await query.edit_message_text("⚙️ **Central de Proteções atualizada com sucesso!**", reply_markup=teclado)
         await query.answer("Configuração alterada!")
@@ -719,12 +677,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton(f"⚡ Anti-Flood: {'✅' if cfg.get('antiflood') else '❌'}", callback_data=f"toggle_{chat_id}_antiflood")],
             [InlineKeyboardButton(f"🖼️ Anti-Imagem: {'✅' if cfg.get('antiimagem') else '❌'}", callback_data=f"toggle_{chat_id}_antiimagem"),
              InlineKeyboardButton(f"🎭 Anti-Figurinha: {'✅' if cfg.get('antifigurinha') else '❌'}", callback_data=f"toggle_{chat_id}_antifigurinha")],
-            [InlineKeyboardButton(f"📹 Anti-Vídeo: {'✅' if cfg.get('antivideo') else '❌'}", callback_data=f"toggle_{chat_id}_antivideo"),
-             InlineKeyboardButton(f"📁 Anti-Arquivo: {'✅' if cfg.get('antiarquivo') else '❌'}", callback_data=f"toggle_{chat_id}_antiarquivo")],
-            [InlineKeyboardButton(f"🎙️ Anti-Áudio: {'✅' if cfg.get('antiaudio') else '❌'}", callback_data=f"toggle_{chat_id}_antiaudio"),
-             InlineKeyboardButton(f"🎞️ Anti-Gif: {'✅' if cfg.get('antigif') else '❌'}", callback_data=f"toggle_{chat_id}_antigif")],
             [InlineKeyboardButton(f"🚨 Anti-Trava: {'✅' if cfg.get('antitrava') else '❌'}", callback_data=f"toggle_{chat_id}_antitrava"),
-             InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")]
+             InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")],
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="cmd_adm")]
         ])
         await query.message.edit_text("⚙️ **Central de Proteções do Grupo**", reply_markup=teclado)
         await query.answer()
@@ -733,9 +688,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "cmd_membros":
         teclado_membros = InlineKeyboardMarkup([
             [InlineKeyboardButton("🏓 Ping", callback_data="menu_ping"), InlineKeyboardButton("🆔 ID", callback_data="menu_id")],
-            [InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil"), InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos")]
+            [InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil"), InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos")],
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_principal")]
         ])
         await query.message.edit_text("📜 **Menu de Membros**\nEscolha uma opção abaixo:", reply_markup=teclado_membros, parse_mode="Markdown")
+        await query.answer()
+        return
+
+    if data == "voltar_principal":
+        chat = query.message.chat
+        mention = query.from_user.mention_markdown() if query.from_user else "Usuário"
+        teclado_grupo = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📜 Comandos de Membros", callback_data="cmd_membros")],
+            [InlineKeyboardButton("🛡️ Comandos de Administradores", callback_data="cmd_adm")],
+            [InlineKeyboardButton("⚙️ Central de Proteções", callback_data=f"painel_prot_{chat.id}")]
+        ])
+        texto_grupo = (
+            f"🛡️ **Painel de Controle Oficial** — {mention}\n"
+            f"📌 Grupo: `{chat.title}`\n\n"
+            "✨ Gerencie a segurança e os comandos do grupo através dos botões abaixo:"
+        )
+        await query.message.edit_text(texto_grupo, reply_markup=teclado_grupo, parse_mode="Markdown")
         await query.answer()
         return
 
@@ -803,6 +776,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"┃ 📝 **Bio:** {bio}\n"
             f"╰━━━━━━━━━━━━━━━━━━━━━╯"
         )
+        try:
+            photos = await context.bot.get_user_profile_photos(user.id, limit=1)
+            if photos and photos.total_count > 0:
+                file_id = photos.photos[0][-1].file_id
+                await query.message.reply_photo(photo=file_id, caption=texto_p, parse_mode="Markdown")
+                return
+        except Exception:
+            pass
         await query.message.reply_text(texto_p, parse_mode="Markdown")
         return
 
@@ -811,13 +792,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         teclado_jogos_menu = InlineKeyboardMarkup([
             [InlineKeyboardButton("🎮 Jogo da Velha", callback_data="jogar_velha"), InlineKeyboardButton("⭕ Dama", callback_data="jogar_dama")],
             [InlineKeyboardButton("🧠 Memória", callback_data="jogar_memoria"), InlineKeyboardButton("♟️ Xadrez", callback_data="jogar_xadrez")],
-            [InlineKeyboardButton("🎯 Forca", callback_data="jogar_forca")]
+            [InlineKeyboardButton("🎯 Forca", callback_data="jogar_forca")],
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="cmd_membros")]
         ])
         await query.message.edit_text("🕹️ **Central de Jogos**\nEscolha o jogo desejado abaixo:", reply_markup=teclado_jogos_menu, parse_mode="Markdown")
         return
 
     if data == "cmd_adm":
-        await query.message.edit_text("🛡️ **Comandos de Administradores:**\n• `/ban`\n• `/mutar`\n• `/protecao`", parse_mode="Markdown")
+        chat_id = query.message.chat.id
+        teclado_adm = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛡️ Central de Proteções", callback_data=f"painel_prot_{chat_id}")],
+            [InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_principal")]
+        ])
+        await query.message.edit_text("🛡️ **Comandos de Administradores:**\n• `/ban`\n• `/mutar`\n• `/protecao`", reply_markup=teclado_adm, parse_mode="Markdown")
         await query.answer()
         return
 
