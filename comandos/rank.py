@@ -62,36 +62,56 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📊 Ainda não há dados de mensagens registrados neste grupo.")
             return
 
-        # Nome do grupo seguro contra caracteres especiais
         nome_grupo = escapar_markdown(chat.title)
-        texto_rank = f"🏆 *Top 10 Membros Mais Ativos*\n👥 *Grupo:* {nome_grupo}\n📊 *Total de Msgs:* `{total_geral_grupo}`\n\n"
+        
+        # Cabeçalho limpo
+        texto_rank = (
+            f"🏆 *RANKING DE ATIVIDADE*\n"
+            f"👥 *Grupo:* {nome_grupo}\n"
+            f"📊 *Total Geral:* `{total_geral_grupo}` mensagens\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        )
 
         for i, doc in enumerate(top_usuarios, start=1):
             user_id = doc.get("user_id")
             total_msgs = doc.get("total_mensagens", 0)
 
-            # Calcula a porcentagem de participação (evitando divisão por zero)
+            # Calcula a porcentagem de participação
             porcentagem = (total_msgs / total_geral_grupo) * 100 if total_geral_grupo > 0 else 0
 
-            nome_usuario = f"Usuário {user_id}"
+            # Tenta buscar os dados do usuário para pegar o @username ou o nome formatado
+            mencao_usuario = f"Usuário `{user_id}`"
             try:
                 membro_info = await context.bot.get_chat_member(chat.id, user_id)
-                if membro_info.user.first_name:
-                    nome_usuario = escapar_markdown(membro_info.user.first_name)
+                tg_user = membro_info.user
+                
+                # Se o usuário tiver username, cria o link de menção limpo (@username)
+                if tg_user.username:
+                    mencao_usuario = f"@{tg_user.username}"
+                elif tg_user.first_name:
+                    # Se não tiver username, cria um link markdown clicável usando o ID do Telegram (funciona como menção)
+                    nome_seguro = escapar_markdown(tg_user.first_name)
+                    mencao_usuario = f"[{nome_seguro}](tg://user?id={user_id})"
             except Exception:
                 pass
 
-            # Apenas 1º, 2º e 3º lugar ganham emoji de medalha
+            # Define o emoji da posição
             if i == 1:
-                pos = "🥇"
+                pos = "🥇 *1º Lugar*"
             elif i == 2:
-                pos = "🥈"
+                pos = "🥈 *2º Lugar*"
             elif i == 3:
-                pos = "🥉"
+                pos = "🥉 *3º Lugar*"
             else:
                 pos = f"#{i}"
 
-            texto_rank += f"{pos} *{nome_usuario}* — `{total_msgs}` msgs (*{porcentagem:.1f}%*)\n"
+            # Bloco individual organizado por usuário
+            texto_rank += (
+                f"{pos} — {mencao_usuario}\n"
+                f"💬 Mensagens: `{total_msgs}`\n"
+                f"📈 Atividade: `{porcentagem:.1f}%`\n"
+                f"──────────────────────\n"
+            )
 
         await update.message.reply_text(texto_rank, parse_mode="Markdown")
 
