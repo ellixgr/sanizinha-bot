@@ -132,6 +132,13 @@ async def cb_toggle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await callback_toggle_status_bv(update, context)
 
+async def cb_toggle_visual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await verificar_permissao_callback(update, context):
+        return
+    chat_id = update.effective_chat.id
+    await enviar_painel_principal_bv(context, chat_id, query=update.callback_query, aviso_extra="Modo visual alterado!")
+    await update.callback_query.answer("Visual atualizado!")
+
 async def cb_painel_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await verificar_permissao_callback(update, context):
         return
