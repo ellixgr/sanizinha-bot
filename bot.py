@@ -6,6 +6,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 MONGO_URI = os.environ.get("MONGO_URI")
+DONO_ID = os.environ.get("DONO_ID")
 
 # Servidor Flask simples para manter o bot acordado no Render/Koyeb
 app_web = Flask(__name__)
@@ -55,12 +56,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
 
-    teclado_painel = InlineKeyboardMarkup([
+    botoes = [
         [InlineKeyboardButton("📜 Comandos de Membros", callback_data="menu_membros")],
         [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")],
         [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
-    ])
+    ]
+
+    # Se quem mandou a mensagem for o dono (e estiver no privado ou chat), adiciona o botão de Painel do Dono
+    if DONO_ID and str(user.id) == str(DONO_ID):
+        botoes.insert(2, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
+
+    teclado_painel = InlineKeyboardMarkup(botoes)
 
     if chat.type in ["group", "supergroup"]:
         await update.message.reply_text(
@@ -78,7 +85,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
     
     if query.data == "menu_membros":
         await query.answer()
@@ -107,7 +114,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚙️ `/protecao` - Configura as travas de segurança\n"
             "👋 Configurar Bem-Vindo abaixo:"
         )
-        # Botão de Proteções adicionado de volta aqui com o callback "menu_protecoes"
         teclado_adm = InlineKeyboardMarkup([
             [InlineKeyboardButton("🛡️ Proteções do Grupo", callback_data="menu_protecoes")],
             [InlineKeyboardButton("👋 Configurar Bem-Vindo", callback_data="config_bemvindo")],
@@ -115,11 +121,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
         await query.message.edit_text(texto_adm, reply_markup=teclado_adm, parse_mode="Markdown")
 
+    elif query.data == "menu_dono":
+        if not DONO_ID or str(user_id) != str(DONO_ID):
+            await query.answer("⚠️ Acesso negado!", show_alert=True)
+            return
+        await query.answer()
+        texto_dono = (
+            "🛠️ **Painel Exclusivo do Dono**\n\n"
+            "Gerencie atualizações e compilações completas do bot diretamente por aqui:"
+        )
+        teclado_dono = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚀 Clear Build Cache & Deploy", callback_data="executar_deploy")],
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+        ])
+        await query.message.edit_text(texto_dono, reply_markup=teclado_dono, parse_mode="Markdown")
+
+    elif query.data == "executar_deploy":
+        if not DONO_ID or str(user_id) != str(DONO_ID):
+            await query.answer("⚠️ Acesso negado!", show_alert=True)
+            return
+        from comandos.deploy import executar_clear_deploy
+        await executar_clear_deploy(update, context)
+
     elif query.data == "config_bemvindo":
         await query.answer()
         try:
             from comandos.bemvindo import enviar_painel_principal_bv
-            await enviar_painel_principal_bv(context, chat_id, query=query)
+            await enviar_painel_principal_bv(context, update.effective_chat.id, query=query)
         except Exception as e:
             await query.message.reply_text(f"⚠️ Erro ao abrir o painel de boas-vindas: {e}")
 
@@ -145,17 +173,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "voltar_menu" or query.data == "ver_comandos" or query.data == "voltar_principal_grupo":
         await query.answer()
+        botoes_voltar = [
+            [InlineKeyboardButton("📜 Comandos de Membros", callback_data="menu_membros")],
+            [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")],
+            [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
+            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
+        ]
+        if DONO_ID and str(user_id) == str(DONO_ID):
+            botoes_voltar.insert(2, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
+
         texto_ajuda = (
             "🔥 **Painel Principal:**\n"
             "Escolha uma das categorias abaixo:"
         )
-        teclado_painel = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📜 Comandos de Membros", callback_data="menu_membros")],
-            [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")],
-            [InlineKeyboardButton("🏓 Ping du Bot", callback_data="botao_ping") if False else InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
-            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
-        ])
-        await query.message.edit_text(texto_ajuda, reply_markup=teclado_painel, parse_mode="Markdown")
+        await query.message.edit_text(texto_ajuda, reply_markup=InlineKeyboardMarkup(botoes_voltar), parse_mode="Markdown")
 
 def main():
     # Inicia o servidor Flask em segundo plano
