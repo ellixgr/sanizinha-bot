@@ -169,8 +169,12 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
 async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await executar_clear_deploy(update, context)
 
+async def ao_iniciar_app(application):
+    """Hook correto do python-telegram-bot executado após o event loop iniciar"""
+    await checar_deploy_pendente_ao_iniciar(application.bot)
+
 def registrar_deploy(app):
     app.add_handler(CommandHandler("cleardeploy", cmd_clear_deploy))
     
-    # Dispara a verificação logo que o bot inicializa de forma segura via create_task
-    app.create_task(checar_deploy_pendente_ao_iniciar(app.bot))
+    # Atribui a função ao post_init para rodar no momento certo sem quebrar o loop
+    app.post_init = ao_iniciar_app
