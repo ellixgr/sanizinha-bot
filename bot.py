@@ -19,6 +19,29 @@ def run_web():
     port = int(os.environ.get("PORT", 10000))
     app_web.run(host="0.0.0.0", port=port)
 
+# Função auxiliar para verificar se o usuário é Administrador ou o Dono
+async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = update.effective_user.id
+    chat = update.effective_chat
+
+    # Se for o dono supremo configurado nas envs, libera sempre
+    if DONO_ID and str(user_id) == str(DONO_ID):
+        return True
+
+    # Se estiver no chat privado, por segurança assumimos que comandos de ADM globais do grupo pedem verificação ou são negados,
+    # mas se for dentro de um grupo, checamos se ele é admin do chat.
+    if chat.type in ["group", "supergroup"]:
+        try:
+            membro = await chat.get_member(user_id)
+            if membro.status in ["administrator", "creator"]:
+                return True
+        except Exception:
+            pass
+        return False
+    
+    # No privado, apenas o dono pode mexer em painéis restritos
+    return False
+
 # Interceptador universal para computar mensagens e mídias das estatísticas
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -63,7 +86,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
 
-    # Se quem mandou a mensagem for o dono (e estiver no privado ou chat), adiciona o botão de Painel do Dono
+    # Se quem mandou a mensagem for o dono, adiciona o botão de Painel do Dono
     if DONO_ID and str(user.id) == str(DONO_ID):
         botoes.insert(2, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
 
@@ -144,6 +167,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await executar_clear_deploy(update, context)
 
     elif query.data == "config_bemvindo":
+        # Trava para apenas administradores ou dono
+        if not await verificar_se_e_adm(update, context):
+            await query.answer("⚠️ Apenas administradores do grupo podem configurar o Bem-Vindo!", show_alert=True)
+            return
+        
         await query.answer()
         try:
             from comandos.bemvindo import enviar_painel_principal_bv
@@ -152,6 +180,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(f"⚠️ Erro ao abrir o painel de boas-vindas: {e}")
 
     elif query.data == "menu_protecoes":
+        # Trava para apenas administradores ou dono
+        if not await verificar_se_e_adm(update, context):
+            await query.answer("⚠️ Apenas administradores do grupo podem configurar as Proteções!", show_alert=True)
+            return
+
         await query.answer()
         try:
             from comandos.protecao import enviar_painel_protecoes
@@ -160,6 +193,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(f"⚠️ Erro ao abrir o painel de proteções: {e}")
 
     elif query.data.startswith("prot_"):
+        if not await verificar_se_e_adm(update, context):
+            await query.answer("⚠️ Apenas administradores podem alterar as proteções!", show_alert=True)
+            return
         try:
             from comandos.protecao import processar_callback_protecao
             await processar_callback_protecao(update, context)
