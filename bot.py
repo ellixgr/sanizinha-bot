@@ -3,9 +3,8 @@ import logging
 import threading
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler
 
-# Configuração de Logs para aparecer no console do Render
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -16,7 +15,6 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 MONGO_URI = os.environ.get("MONGO_URI")
 DONO_ID = os.environ.get("DONO_ID")
 
-# Servidor Flask simples para manter o bot acordado no Render/Koyeb
 app_web = Flask(__name__)
 
 @app_web.route('/')
@@ -27,17 +25,13 @@ def run_web():
     port = int(os.environ.get("PORT", 10000))
     app_web.run(host="0.0.0.0", port=port)
 
-# Função auxiliar para verificar se o usuário é Administrador ou o Dono
 async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
     chat = update.effective_chat
 
-    # Se for o dono supremo configurado nas envs, libera sempre
     if DONO_ID and str(user_id) == str(DONO_ID):
         return True
 
-    # Se estiver no chat privado, por segurança assumimos que comandos de ADM globais do grupo pedem verificação ou são negados,
-    # mas se for dentro de um grupo, checamos se ele é admin do chat.
     if chat.type in ["group", "supergroup"]:
         try:
             membro = await chat.get_member(user_id)
@@ -47,10 +41,8 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
             pass
         return False
     
-    # No privado, apenas o dono pode mexer em painéis restritos
     return False
 
-# Interceptador universal para computar estatísticas e registrar logs de mensagens formatados
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -63,7 +55,6 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
 
     username_str = f"@{user.username}" if user.username else user.first_name
 
-    # Log formatado e bonitinho no console do Render
     if chat.type == "private":
         logger.info(
             f"\n__________________\n"
@@ -117,7 +108,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
 
-    # Se quem mandou a mensagem for o dono, adiciona o botão de Painel do Dono
+
     if DONO_ID and str(user.id) == str(DONO_ID):
         botoes.insert(2, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
 
@@ -254,15 +245,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto_ajuda, reply_markup=InlineKeyboardMarkup(botoes_voltar), parse_mode="Markdown")
 
 def main():
-    # Inicia o servidor Flask em segundo plano
+
     threading.Thread(target=run_web, daemon=True).start()
     
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Registra o interceptador universal para capturar mensagens e gerar logs no console
+
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=-1)
 
-    # Importa e registra todos os módulos da pasta comandos/
     from comandos.ping import registrar_ping
     from comandos.id import registrar_id
     from comandos.perfil import registrar_perfil
@@ -270,7 +260,7 @@ def main():
     from comandos.mutar import registrar_mutar
     from comandos.bemvindo import registrar_comandos_bv
     from comandos.promover import registrar_promover
-    from comandos.marcar import registrar_marcar
+    from comandos.marcar import registrar_marcar, capturar_membros_handler, remover_membro_saiu_handler
     from comandos.citar import registrar_citar
     from comandos.protecao import registrar_protecoes
     from comandos.play import setup_play
@@ -290,6 +280,10 @@ def main():
     setup_play(app)
     registrar_mutar(app)
     registrar_deploy(app)
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
+    app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
