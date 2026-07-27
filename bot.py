@@ -22,11 +22,9 @@ from telegram.ext import (
     filters
 )
 
-# 1. Inicialização do app do bot com o token
 token = os.environ.get("TELEGRAM_TOKEN")
 app = ApplicationBuilder().token(token).build()
 
-# 2. Chamadas dos setups dos módulos externos
 from Comandos.bemvindo import registrar_comandos_bv
 registrar_comandos_bv(app)
 
@@ -66,7 +64,6 @@ DONO_ID = int(os.environ.get("DONO_ID", 7711945457))
 CANAL_ALVO_ID = int(os.environ.get("CANAL_ALVO_ID", 0))
 MONGO_URI = os.environ.get("MONGO_URI")
 
-# Conexão segura com o MongoDB
 try:
     mongo_client = MongoClient(
         MONGO_URI, 
@@ -95,18 +92,6 @@ pagamentos_notificados = set()
 FLOOD_CONTROL = defaultdict(list)
 USER_MSG_CACHE = defaultdict(list)
 ADVERTENCIAS_LINK = defaultdict(dict)  
-PERMISSOES_SELECIONADAS = {}
-
-OPCOES_PERMISSOES = {
-    "can_manage_chat": "Gerenciar chat",
-    "can_delete_messages": "Apagar mensagens",
-    "can_manage_video_chats": "Gerenciar chamadas de voz",
-    "can_restrict_members": "Banir/Restringir usuários",
-    "can_promote_members": "Adicionar novos admins",
-    "can_change_info": "Alterar dados do grupo",
-    "can_invite_users": "Convidar via link",
-    "can_pin_messages": "Fixar mensagens"
-}
 
 def get_config(chat_id: int):
     try:
@@ -152,7 +137,6 @@ async def is_user_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> b
         pass
     return False
 
-# ================= INTERCEPTADOR UNIVERSAL E PROTEÇÕES =================
 async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -161,7 +145,6 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
     user_id = user.id
     agora = time.time()
     
-    # Contabilizar mensagens de usuários nos grupos para o comando /perfil
     if chat and chat.type in ["group", "supergroup"] and update.message:
         try:
             col_mensagens_usuarios.update_one(
@@ -175,29 +158,22 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
     if user_id == DONO_ID:
         return
 
-    # Anti-flood estrito de comandos (2 segundos de pausa entre cada comando)
     if update.message and update.message.text and update.message.text.startswith('/'):
         if user_id in ultimo_envio:
             tempo_decorrido = agora - ultimo_envio[user_id]
             if tempo_decorrido < 2.0:
                 try:
-                    await update.message.reply_text(
-                        f"⚠️ **Aguarde {2.0 - tempo_decorrido:.1f}s** para enviar outro comando.",
-                        parse_mode="Markdown"
-                    )
+                    await update.message.reply_text(f"⚠️ **Aguarde {2.0 - tempo_decorrido:.1f}s**.", parse_mode="Markdown")
                 except Exception:
                     pass
                 raise ApplicationHandlerStop
 
-    # Se for em grupo, aplicar proteções de chat
     if chat and chat.type in ["group", "supergroup"]:
         message = update.message
         if message:
             if not await is_user_admin(update, context):
                 cfg = get_config(chat.id)
                 texto = message.text or message.caption or ""
-
-                # 1. Antilink Completo (Links, Menções de Grupo, Encaminhados de Canal/Grupo)
                 is_forward_proibido = cfg.get("antienk_forward", True) and (message.forward_date or message.forward_origin)
                 padrao_link = r"(https?://\S+|t\.me/\S+|www\.\S+|@[a-zA-Z0-9_]{5,})"
                 tem_link_ou_mencao = bool(re.search(padrao_link, texto)) or message.entities and any(e.type in ["text_link", "mention"] for e in message.entities)
@@ -205,38 +181,31 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
                 if cfg.get("antilink", True) and (tem_link_ou_mencao or is_forward_proibido):
                     try:
                         await message.delete()
-                        
                         if chat.id not in ADVERTENCIAS_LINK:
                             ADVERTENCIAS_LINK[chat.id] = {}
-                        
                         avisos_usuario = ADVERTENCIAS_LINK[chat.id].get(user_id, 0) + 1
                         ADVERTENCIAS_LINK[chat.id][user_id] = avisos_usuario
-                        
                         if avisos_usuario == 1:
-                            await message.reply_text(f"⚠️ **{user.first_name}**, links, menções ou conteúdos encaminhados não são permitidos aqui! Este é o **1º aviso**.")
+                            await message.reply_text(f"⚠️ **{user.first_name}**, links não permitidos! 1º aviso.")
                         else:
                             await context.bot.ban_chat_member(chat.id, user_id)
-                            await message.reply_text(f"🛡️ **{user.first_name}** foi removido/banido por reincidência de envio de links/encaminhados.")
+                            await message.reply_text(f"🛡️ **{user.first_name}** banido por reincidência de links.")
                             ADVERTENCIAS_LINK[chat.id][user_id] = 0
                     except Exception:
                         pass
                     raise ApplicationHandlerStop
 
-                # 2. Anti Trava
                 if cfg.get("antitrava", True) and len(texto) > 1500:
                     try:
                         await message.delete()
                         await context.bot.ban_chat_member(chat.id, user_id)
-                        await message.reply_text(f"🛡️ **{user.first_name}** banido por texto malicioso/trava.")
                     except Exception:
                         pass
                     raise ApplicationHandlerStop
 
-                # 3. Anti Mídias Específicas Restantes
                 if cfg.get("antiimagem", False) and message.photo:
                     try:
                         await message.delete()
-                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de imagens é proibido neste grupo!")
                     except Exception:
                         pass
                     raise ApplicationHandlerStop
@@ -244,39 +213,10 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
                 if cfg.get("antifigurinha", False) and message.sticker:
                     try:
                         await message.delete()
-                        await message.reply_text(f"⚠️ **{user.first_name}**, o envio de figurinhas é proibido neste grupo!")
                     except Exception:
                         pass
                     raise ApplicationHandlerStop
 
-    if user_id in bloqueio_temporario:
-        if bloqueio_temporario[user_id] - agora > 0:
-            raise ApplicationHandlerStop  
-        else:
-            del bloqueio_temporario[user_id]
-            contador_spam.pop(user_id, None)
-                
-    if user_id in usuarios_bloqueados:
-        raise ApplicationHandlerStop        
-
-    if user_id in ultimo_envio:
-        if agora - ultimo_envio[user_id] < 1.2:
-            contador_spam[user_id] = contador_spam.get(user_id, 0) + 1
-            ultimo_envio[user_id] = agora
-            if contador_spam[user_id] >= 8:
-                bloqueio_temporario[user_id] = agora + 300  
-                contador_spam[user_id] = 0
-                try:
-                    await context.bot.send_message(
-                        chat_id=update.effective_chat.id,
-                        text="⚠️ **Muitas mensagens enviadas rapidamente. Aguarde alguns instantes.**",
-                        parse_mode="Markdown"
-                    )
-                except Exception:
-                    pass
-                raise ApplicationHandlerStop           
-            raise ApplicationHandlerStop
-            
     ultimo_envio[user_id] = agora
 
 async def verificar_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -298,38 +238,21 @@ async def verificar_my_chat_member(update: Update, context: ContextTypes.DEFAULT
         except Exception:
             pass
 
-# ================= COMANDOS ORIGINAIS E PORTADOS =================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private":
         await start_group_handler(update, context)
         return
         
-    texto_boas_vindas = (
-        "🔥 **SEJA BEM-VINDO AO CANAL EXCLUSIVO** 🇧🇷\n\n"
-        "✨ Tenha acesso completo a todo o nosso conteúdo diário atualizado em um só lugar:\n\n"
-        "📁 +130 mil mídias disponíveis (vídeos e fotos)\n"
-        "🚀 Atualizações diárias sem censura\n"
-        "💎 Material organizado e exclusivo\n\n"
-        "👇 Escolha o seu plano abaixo para liberar o seu acesso:\n\n"
-        "💡 *Precisa de ajuda? Fale com o suporte:* @Lyhhxv"
-    )
+    texto_boas_vindas = "🔥 **SEJA BEM-VINDO AO BOT** 🇧🇷\n\nEscolha uma opção abaixo:"
     keyboard = [
-        [InlineKeyboardButton("𝐀𝐂𝐄𝐒𝐒𝐎 𝐏𝐎𝐑 1 𝐃𝐈𝐀 → R$ 2,00 🔥", callback_data="comprar_2.00")],
-        [InlineKeyboardButton("𝐀𝐂𝐄𝐒𝐒𝐎 𝐏𝐎𝐑 1 𝐒𝐄𝐌𝐀𝐍𝐀 → R$ 7,00", callback_data="comprar_7.00")],
-        [InlineKeyboardButton("𝐀𝐂𝐄𝐒𝐒𝐎 𝐏𝐎𝐑 1 𝐌𝐄𝐒 → R$ 20,00", callback_data="comprar_20.00")],
-        [InlineKeyboardButton("𝐀𝐂𝐄𝐒𝐒𝐎 𝐏𝐄𝐑𝐌𝐀ℕ𝐄ℕ𝐓𝐄 → R$ 60,00", callback_data="comprar_60.00")]
+        [InlineKeyboardButton("𝐀𝐂𝐄𝐒𝐒𝐎 1 𝐃𝐈𝐀 → R$ 2,00", callback_data="comprar_2.00")],
+        [InlineKeyboardButton("𝐀𝐂𝐄𝐒𝐒𝐎 1 𝐒𝐄𝐌𝐀𝐍𝐀 → R$ 7,00", callback_data="comprar_7.00")],
+        [InlineKeyboardButton("𝐀𝐂𝐄𝐒𝐒𝐎 1 𝐌𝐄𝐒 → R$ 20,00", callback_data="comprar_20.00")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     try:
-        await update.message.reply_photo(
-            photo=FOTO_START,
-            caption=texto_boas_vindas,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
+        await update.message.reply_photo(photo=FOTO_START, caption=texto_boas_vindas, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     except Exception:
-        await update.message.reply_text(texto_boas_vindas, reply_markup=reply_markup, parse_mode="Markdown")
+        await update.message.reply_text(texto_boas_vindas, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def start_group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -340,292 +263,16 @@ async def start_group_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("🛡️ Comandos de Administradores", callback_data="cmd_adm")],
         [InlineKeyboardButton("⚙️ Central de Proteções", callback_data=f"painel_prot_{chat.id}")]
     ])
-    texto_grupo = (
-        f"🛡️ **Painel de Controle Oficial** — {mention}\n"
-        f"📌 Grupo: `{chat.title}`\n\n"
-        "✨ Gerencie a segurança e os comandos do grupo através dos botões abaixo:"
-    )
+    texto_grupo = f"🛡️ **Painel Oficial** — {mention}\n📌 Grupo: `{chat.title}`"
     await update.message.reply_text(texto_grupo, reply_markup=teclado_grupo, parse_mode="Markdown")
-
-async def id_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    resposta = (
-        f"📊 **INFORMAÇÕES DE ID:**\n\n"
-        f"💬 **Nome do Chat:** {chat.title if chat.title else 'Privado'}\n"
-        f"🆔 **ID deste Chat/Grupo:** `{chat.id}`\n"
-        f"👤 **Seu ID de Usuário:** `{user.id}`"
-    )
-    if update.message.reply_to_message and update.message.reply_to_message.from_user:
-        alvo = update.message.reply_to_message.from_user
-        resposta += f"\n👤 **Alvo Respondido:** {alvo.first_name}\n🆔 **ID do Alvo:** `{alvo.id}`"
-    await update.message.reply_text(resposta, parse_mode="Markdown")
-
-async def teste_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if not user or user.id != DONO_ID:
-        return
-    msg_teste = f"🧪 **DADOS CAPTURADOS (COMANDO /TESTE)!**\n👤 **Nome:** {user.first_name}\n🆔 **ID:** `{user.id}`"
-    await update.message.reply_text("✅ Teste executado!")
-    try:
-        await context.bot.send_message(chat_id=DONO_ID, text=msg_teste, parse_mode="Markdown")
-    except Exception:
-        pass
-
-async def comandos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != DONO_ID:
-        return
-    texto = (
-        "📜 **LISTA DE COMANDOS DO BOT**\n\n"
-        "• `/start` - Inicia o bot\n• `/id` - Mostra IDs\n• `/protecao` - Painel de segurança\n"
-        "• `/ban` - Bane usuário\n• `/mutar` / `/desmutar` - Moderação\n"
-        "• `/figu` - Cria figurinhas\n• `/ping` - Latência e Status do Bot\n• `/jogos` - Central de Jogos"
-    )
-    await update.message.reply_text(texto, parse_mode="Markdown")
-
-async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != DONO_ID:
-        return
-    await comandos_cmd(update, context)
-
-async def config_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != DONO_ID:
-        return
-    chats = list(collection_chats.find({}))
-    if not chats:
-        await update.message.reply_text("⚙️ Nenhum grupo catalogado ainda.", parse_mode="Markdown")
-        return
-    keyboard = [[InlineKeyboardButton(f"👥 {c.get('title', 'Grupo')}", callback_data=f"cfg_chat_{c['chat_id']}")] for c in chats]
-    await update.message.reply_text("⚙️ **Painel de Configuração de Grupos**", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-
-async def clientes_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != DONO_ID:
-        return
-    lista = list(collection_clientes.find({}))
-    if not lista:
-        await update.message.reply_text("📁 Nenhum cliente ativo.", parse_mode="Markdown")
-        return
-    resposta = f"📋 **CLIENTES ATIVOS ({len(lista)})**:\n\n"
-    for c in lista:
-        resposta += f"🔹 `{c.get('user_id')}` - Expira em: {time.strftime('%d/%m/%Y', time.localtime(c.get('expira_em', 0)))}\n"
-    await update.message.reply_text(resposta, parse_mode="Markdown")
 
 async def ping_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     inicio = time.time()
     msg = await update.message.reply_text("pong 🏓...")
     latencia = int((time.time() - inicio) * 1000)
-    
-    uptime_segundos = int(time.time() - TEMPO_INICIAL)
-    horas = uptime_segundos // 3600
-    minutos = (uptime_segundos % 3600) // 60
-    
-    sistema = f"{platform.system()} ({platform.release()})"
-    
-    cpu_uso = 0.0
-    mem_uso_mb = 0.0
-    
-    if psutil:
-        try:
-            processo = psutil.Process(os.getpid())
-            cpu_uso = processo.cpu_percent(interval=0.1)
-            mem_uso_mb = processo.memory_info().rss / (1024 ** 2)
-        except Exception:
-            pass
+    uptime = int(time.time() - TEMPO_INICIAL)
+    await msg.edit_text(f"🏓 **Latência:** `{latencia}ms` | **Online:** `{uptime//3600}h`", parse_mode="Markdown")
 
-    if cpu_uso < 50:
-        cpu_emoji = "🟢"
-    elif cpu_uso <= 85:
-        cpu_emoji = "🟡"
-    else:
-        cpu_emoji = "🔴"
-
-    resposta = (
-        f"🏓 **STATUS DO BOT & HOSPEDAGEM (RENDER)**\n\n"
-        f"⚡ **Velocidade de Resposta:** `{latencia}ms`\n"
-        f"⏳ **Tempo Online:** `{horas}h {minutos}m`\n"
-        f"💻 **Plataforma:** `{sistema} (Render Free Tier)`\n"
-        f"📦 **Plano do Bot:** `Free (512 MB RAM / 0.1 CPU)`\n"
-        f"💾 **Memória RAM Atual:** `{mem_uso_mb:.2f} MB` (de 512 MB)\n"
-        f"🖥️ **Uso de CPU:** `{cpu_uso:.1f}%` {cpu_emoji}"
-    )
-    await msg.edit_text(resposta, parse_mode="Markdown")
-
-async def suporte_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🛠 **Suporte:** @Lyhhxv", parse_mode="Markdown")
-
-async def addusuario_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != DONO_ID:
-        return
-    args = context.args
-    if len(args) < 2:
-        await update.message.reply_text("⚠️ Use: `/addusuario <id> <dias>`", parse_mode="Markdown")
-        return
-    try:
-        user_id = int(args[0])
-        dias = int(args[1])
-        exp = time.time() + (dias * 86400)
-        collection_clientes.update_one({"user_id": user_id}, {"$set": {"user_id": user_id, "expira_em": exp}}, upsert=True)
-        await update.message.reply_text(f"✅ Usuário `{user_id}` adicionado por `{dias}` dias!", parse_mode="Markdown")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Erro: {e}")
-
-# ================= COMANDOS DE MODERAÇÃO E UTILITÁRIOS =================
-async def ban_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_user_admin(update, context):
-        await update.message.reply_text("⚠️ Apenas administradores!")
-        return
-    chat = update.effective_chat
-    alvo_id = None
-    if update.message.reply_to_message and update.message.reply_to_message.from_user:
-        alvo_id = update.message.reply_to_message.from_user.id
-    elif context.args:
-        termo = context.args[0].replace("@", "")
-        if termo.isdigit():
-            alvo_id = int(termo)
-    
-    if not alvo_id:
-        await update.message.reply_text("⚠️ Responda a alguém ou informe o ID para banir.")
-        return
-    try:
-        await context.bot.ban_chat_member(chat.id, alvo_id)
-        await update.message.reply_text(f"🔨 Usuário `{alvo_id}` banido com sucesso!")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Erro ao banir: {e}")
-
-async def mutar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_user_admin(update, context):
-        return
-    if not update.message.reply_to_message:
-        await update.message.reply_text("⚠️ Responda a mensagem do usuário que deseja mutar.")
-        return
-    alvo = update.message.reply_to_message.from_user
-    try:
-        await context.bot.restrict_chat_member(
-            update.effective_chat.id,
-            alvo.id,
-            permissions=ChatPermissions(can_send_messages=False)
-        )
-        await update.message.reply_text(f"🔇 {alvo.first_name} foi mutado!")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Erro: {e}")
-
-async def desmutar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_user_admin(update, context):
-        return
-    if not update.message.reply_to_message:
-        return
-    alvo = update.message.reply_to_message.from_user
-    try:
-        await context.bot.restrict_chat_member(
-            update.effective_chat.id,
-            alvo.id,
-            permissions=ChatPermissions(
-                can_send_messages=True, can_send_media_messages=True,
-                can_send_polls=True, can_send_other_messages=True, can_add_web_page_previews=True
-            )
-        )
-        await update.message.reply_text(f"🔊 {alvo.first_name} foi desmutado!")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Erro: {e}")
-
-async def figu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.message
-    alvo = msg.reply_to_message if msg.reply_to_message else msg
-    if not alvo.photo:
-        await msg.reply_text("⚠️ Responda a uma foto com `/figu` para criar uma figurinha!")
-        return
-    m = await msg.reply_text("🎨 Criando figurinha...")
-    try:
-        photo_file = await context.bot.get_file(alvo.photo[-1].file_id)
-        caminho = f"downloads/{uuid.uuid4()}.jpg"
-        os.makedirs("downloads", exist_ok=True)
-        await photo_file.download_to_drive(caminho)
-        
-        caminho_webp = caminho.rsplit(".", 1)[0] + ".webp"
-        cmd_ffmpeg = ["ffmpeg", "-y", "-i", caminho, "-vf", "scale='if(gt(iw,ih),512,-1)':'if(gt(iw,ih),-1,512)'", "-vcodec", "libwebp", caminho_webp]
-        processo = await asyncio.create_subprocess_exec(*cmd_ffmpeg, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        await processo.communicate()
-
-        if os.path.exists(caminho_webp):
-            await update.effective_chat.send_sticker(sticker=open(caminho_webp, "rb"))
-        else:
-            await update.effective_chat.send_sticker(sticker=open(caminho, "rb"))
-        await m.delete()
-    except Exception as e:
-        await m.edit_text(f"❌ Erro ao gerar figurinha: {e}")
-
-async def perfil_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    
-    if update.message.reply_to_message and update.message.reply_to_message.from_user:
-        user = update.message.reply_to_message.from_user
-
-    total_msgs = 0
-    if chat and chat.type in ["group", "supergroup"]:
-        try:
-            doc_msg = col_mensagens_usuarios.find_one({"chat_id": chat.id, "user_id": user.id})
-            if doc_msg:
-                total_msgs = doc_msg.get("total_mensagens", 0)
-        except Exception:
-            pass
-
-    bio = "Não informada"
-    try:
-        full_user = await context.bot.get_chat(user.id)
-        if full_user and full_user.bio:
-            bio = full_user.bio
-    except Exception:
-        pass
-
-    texto_perfil = (
-        f"╭━×🗿 **PERFIL DO USUÁRIO** 🌹×━━╮\n"
-        f"┃ 👤 **Nome:** {user.first_name}\n"
-        f"┃ 🆔 **ID:** `{user.id}`\n"
-        f"┃ 💬 **Mensagens no Grupo:** `{total_msgs}`\n"
-        f"┃ 📝 **Bio:** {bio}\n"
-        f"╰━━━━━━━━━━━━━━━━━━━━━╯"
-    )
-
-    try:
-        photos = await context.bot.get_user_profile_photos(user.id, limit=1)
-        if photos and photos.total_count > 0:
-            file_id = photos.photos[0][-1].file_id
-            await update.message.reply_photo(photo=file_id, caption=texto_perfil, parse_mode="Markdown")
-            return
-    except Exception:
-        pass
-
-    await update.message.reply_text(texto_perfil, parse_mode="Markdown")
-
-async def jogos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    teclado = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎮 Jogo da Velha", callback_data="jogar_velha"), InlineKeyboardButton("🎯 Forca", callback_data="jogar_forca")],
-        [InlineKeyboardButton("⭕ Dama", callback_data="jogar_dama"), InlineKeyboardButton("🧠 Memória", callback_data="jogar_memoria")],
-        [InlineKeyboardButton("♟️ Xadrez", callback_data="jogar_xadrez")],
-        [InlineKeyboardButton("⬅️ Voltar", callback_data="cmd_membros")]
-    ])
-    await update.message.reply_text("🕹️ **Central de Jogos**\nEscolha uma opção:", reply_markup=teclado)
-
-async def protecao_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_user_admin(update, context):
-        await update.message.reply_text("⚠️ Apenas administradores podem gerenciar as proteções!")
-        return
-    chat_id = update.effective_chat.id
-    cfg = get_config(chat_id)
-    
-    teclado = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🛡️ Antilink: {'✅' if cfg.get('antilink') else '❌'}", callback_data=f"toggle_{chat_id}_antilink"),
-         InlineKeyboardButton(f"⚡ Anti-Flood: {'✅' if cfg.get('antiflood') else '❌'}", callback_data=f"toggle_{chat_id}_antiflood")],
-        [InlineKeyboardButton(f"🖼️ Anti-Imagem: {'✅' if cfg.get('antiimagem') else '❌'}", callback_data=f"toggle_{chat_id}_antiimagem"),
-         InlineKeyboardButton(f"🎭 Anti-Figurinha: {'✅' if cfg.get('antifigurinha') else '❌'}", callback_data=f"toggle_{chat_id}_antifigurinha")],
-        [InlineKeyboardButton(f"🚨 Anti-Trava: {'✅' if cfg.get('antitrava') else '❌'}", callback_data=f"toggle_{chat_id}_antitrava"),
-         InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")],
-        [InlineKeyboardButton("⬅️ Voltar", callback_data="cmd_adm")]
-    ])
-    await update.message.reply_text("⚙️ **Central de Proteções Avançadas**\nClique nos botões abaixo para ativar ou desativar cada proteção:", reply_markup=teclado)
-
-# ================= CALLBACK QUERY HANDLER UNIFICADO =================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -633,15 +280,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id_atual = query.message.chat.id
 
     if data.startswith("toggle_"):
-        if chat_id_atual and chat_id_atual < 0: 
-            try:
-                member = await context.bot.get_chat_member(chat_id_atual, user_id)
-                if member.status not in ["creator", "administrator"] and user_id != DONO_ID:
-                    await query.answer("⚠️ Apenas administradores podem alterar as proteções!", show_alert=True)
-                    return
-            except Exception:
-                pass
-
         _, chat_id_str, recurso = data.split("_", 2)
         chat_id = int(chat_id_str)
         cfg = get_config(chat_id)
@@ -656,21 +294,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton(f"🎭 Anti-Figurinha: {'✅' if cfg.get('antifigurinha') else '❌'}", callback_data=f"toggle_{chat_id}_antifigurinha")],
             [InlineKeyboardButton(f"🚨 Anti-Trava: {'✅' if cfg.get('antitrava') else '❌'}", callback_data=f"toggle_{chat_id}_antitrava"),
              InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")],
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="cmd_adm")]
+            [InlineKeyboardButton("⬅️ Voltar", callback_data=f"voltar_principal_grupo_{chat_id}")]
         ])
-        await query.edit_message_text("⚙️ **Central de Proteções atualizada com sucesso!**", reply_markup=teclado)
-        await query.answer("Configuração alterada!")
+        await query.edit_message_text("⚙️ **Central de Proteções atualizada!**", reply_markup=teclado)
+        await query.answer("Atualizado!")
         return
 
     if data.startswith("painel_prot_"):
         chat_id = int(data.split("_")[2])
-        try:
-            member = await context.bot.get_chat_member(chat_id, user_id)
-            if member.status not in ["creator", "administrator"] and user_id != DONO_ID:
-                await query.answer("⚠️ Apenas administradores!", show_alert=True)
-                return
-        except Exception:
-            pass
         cfg = get_config(chat_id)
         teclado = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"🛡️ Antilink: {'✅' if cfg.get('antilink') else '❌'}", callback_data=f"toggle_{chat_id}_antilink"),
@@ -679,19 +310,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
              InlineKeyboardButton(f"🎭 Anti-Figurinha: {'✅' if cfg.get('antifigurinha') else '❌'}", callback_data=f"toggle_{chat_id}_antifigurinha")],
             [InlineKeyboardButton(f"🚨 Anti-Trava: {'✅' if cfg.get('antitrava') else '❌'}", callback_data=f"toggle_{chat_id}_antitrava"),
              InlineKeyboardButton(f"🔄 Anti-Forward: {'✅' if cfg.get('antienk_forward') else '❌'}", callback_data=f"toggle_{chat_id}_antienk_forward")],
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="cmd_adm")]
+            [InlineKeyboardButton("⬅️ Voltar", callback_data=f"voltar_principal_grupo_{chat_id}")]
         ])
         await query.message.edit_text("⚙️ **Central de Proteções do Grupo**", reply_markup=teclado)
+        await query.answer()
+        return
+
+    if data.startswith("voltar_principal_grupo_") or data == "cmd_adm":
+        chat_id = chat_id_atual
+        if "_" in data and data.split("_")[-1].isdigit():
+            chat_id = int(data.split("_")[-1])
+        from Comandos.bemvindo import enviar_painel_principal_bv
+        await enviar_painel_principal_bv(context, chat_id, query=query)
         await query.answer()
         return
 
     if data == "cmd_membros":
         teclado_membros = InlineKeyboardMarkup([
             [InlineKeyboardButton("🏓 Ping", callback_data="menu_ping"), InlineKeyboardButton("🆔 ID", callback_data="menu_id")],
-            [InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil"), InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos")],
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_principal")]
+            [InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos"), InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_principal")]
         ])
-        await query.message.edit_text("📜 **Menu de Membros**\nEscolha uma opção abaixo:", reply_markup=teclado_membros, parse_mode="Markdown")
+        await query.message.edit_text("📜 **Menu de Membros**", reply_markup=teclado_membros, parse_mode="Markdown")
         await query.answer()
         return
 
@@ -700,15 +339,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mention = query.from_user.mention_markdown() if query.from_user else "Usuário"
         teclado_grupo = InlineKeyboardMarkup([
             [InlineKeyboardButton("📜 Comandos de Membros", callback_data="cmd_membros")],
-            [InlineKeyboardButton("🛡️ Comandos de Administradores", callback_data="cmd_adm")],
-            [InlineKeyboardButton("⚙️ Central de Proteções", callback_data=f"painel_prot_{chat.id}")]
+            [InlineKeyboardButton("🛡️ Administradores", callback_data="cmd_adm")],
+            [InlineKeyboardButton("⚙️ Proteções", callback_data=f"painel_prot_{chat.id}")]
         ])
-        texto_grupo = (
-            f"🛡️ **Painel de Controle Oficial** — {mention}\n"
-            f"📌 Grupo: `{chat.title}`\n\n"
-            "✨ Gerencie a segurança e os comandos do grupo através dos botões abaixo:"
-        )
-        await query.message.edit_text(texto_grupo, reply_markup=teclado_grupo, parse_mode="Markdown")
+        await query.message.edit_text(f"🛡️ **Painel de Controle** — {mention}", reply_markup=teclado_grupo, parse_mode="Markdown")
         await query.answer()
         return
 
@@ -716,94 +350,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         inicio = time.time()
         latencia = int((time.time() - inicio) * 1000)
-        uptime_segundos = int(time.time() - TEMPO_INICIAL)
-        horas = uptime_segundos // 3600
-        minutos = (uptime_segundos % 3600) // 60
-        
-        cpu_uso = 0.0
-        mem_uso_mb = 0.0
-        if psutil:
-            try:
-                processo = psutil.Process(os.getpid())
-                cpu_uso = processo.cpu_percent(interval=0.1)
-                mem_uso_mb = processo.memory_info().rss / (1024 ** 2)
-            except Exception:
-                pass
-                
-        cpu_emoji = "🟢" if cpu_uso < 50 else ("🟡" if cpu_uso <= 85 else "🔴")
-        texto_ping = (
-            f"🏓 **STATUS DO BOT & HOSPEDAGEM (RENDER)**\n\n"
-            f"⚡ **Latência:** `{latencia}ms`\n"
-            f"⏳ **Tempo Online:** `{horas}h {minutos}m`\n"
-            f"📦 **Plano:** `Free (512 MB RAM)`\n"
-            f"💾 **RAM Atual:** `{mem_uso_mb:.2f} MB`\n"
-            f"🖥️ **CPU:** `{cpu_uso:.1f}%` {cpu_emoji}"
-        )
-        await query.message.reply_text(texto_ping, parse_mode="Markdown")
+        await query.message.reply_text(f"🏓 **Latência:** `{latencia}ms`", parse_mode="Markdown")
         return
 
     if data == "menu_id":
         await query.answer()
         user = query.from_user
         chat = query.message.chat
-        await query.message.reply_text(f"🆔 **Seu ID:** `{user.id}`\n💬 **ID do Chat:** `{chat.id}`", parse_mode="Markdown")
-        return
-
-    if data == "menu_perfil":
-        await query.answer()
-        user = query.from_user
-        chat = query.message.chat
-        total_msgs = 0
-        if chat and chat.type in ["group", "supergroup"]:
-            try:
-                doc_msg = col_mensagens_usuarios.find_one({"chat_id": chat.id, "user_id": user.id})
-                if doc_msg:
-                    total_msgs = doc_msg.get("total_mensagens", 0)
-            except Exception:
-                pass
-        bio = "Não informada"
-        try:
-            full_user = await context.bot.get_chat(user.id)
-            if full_user and full_user.bio:
-                bio = full_user.bio
-        except Exception:
-            pass
-        texto_p = (
-            f"╭━×🗿 **PERFIL DO USUÁRIO** 🌹×━━╮\n"
-            f"┃ 👤 **Nome:** {user.first_name}\n"
-            f"┃ 🆔 **ID:** `{user.id}`\n"
-            f"┃ 💬 **Mensagens no Grupo:** `{total_msgs}`\n"
-            f"┃ 📝 **Bio:** {bio}\n"
-            f"╰━━━━━━━━━━━━━━━━━━━━━╯"
-        )
-        try:
-            photos = await context.bot.get_user_profile_photos(user.id, limit=1)
-            if photos and photos.total_count > 0:
-                file_id = photos.photos[0][-1].file_id
-                await query.message.reply_photo(photo=file_id, caption=texto_p, parse_mode="Markdown")
-                return
-        except Exception:
-            pass
-        await query.message.reply_text(texto_p, parse_mode="Markdown")
+        await query.message.reply_text(f"🆔 **ID:** `{user.id}` | **Chat ID:** `{chat.id}`", parse_mode="Markdown")
         return
 
     if data == "menu_jogos":
         await query.answer()
-        teclado_jogos_menu = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎮 Jogo da Velha", callback_data="jogar_velha"), InlineKeyboardButton("⭕ Dama", callback_data="jogar_dama")],
-            [InlineKeyboardButton("🧠 Memória", callback_data="jogar_memoria"), InlineKeyboardButton("♟️ Xadrez", callback_data="jogar_xadrez")],
-            [InlineKeyboardButton("🎯 Forca", callback_data="jogar_forca")],
+        teclado_jogos = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎮 Velha", callback_data="jogar_velha"), InlineKeyboardButton("🎯 Forca", callback_data="jogar_forca")],
             [InlineKeyboardButton("⬅️ Voltar", callback_data="cmd_membros")]
         ])
-        await query.message.edit_text("🕹️ **Central de Jogos**\nEscolha o jogo desejado abaixo:", reply_markup=teclado_jogos_menu, parse_mode="Markdown")
-        return
-
-    if data == "cmd_adm":
-        chat_id = query.message.chat.id
-        # Integrado o botão de boas-vindas acionando a função importada do bemvindo.py
-        from Comandos.bemvindo import enviar_painel_principal_bv
-        await enviar_painel_principal_bv(context, chat_id, query=query)
-        await query.answer()
+        await query.message.edit_text("🕹️ **Central de Jogos**", reply_markup=teclado_jogos, parse_mode="Markdown")
         return
 
     if data.startswith("comprar_"):
@@ -813,10 +376,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         valor = float(data.split("_")[1])
         try:
-            await query.edit_message_caption(caption="⏳ Gerando seu PIX, aguarde...", reply_markup=None)
+            await query.edit_message_caption(caption="⏳ Gerando PIX...", reply_markup=None)
         except Exception:
             try:
-                await query.edit_message_text("⏳ Gerando seu PIX, aguarde...")
+                await query.edit_message_text("⏳ Gerando PIX...")
             except Exception:
                 pass
         
@@ -829,32 +392,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         payload = {
             "transaction_amount": valor,
-            "description": f"Acesso VIP - R$ {valor:.2f}",
+            "description": f"VIP - R$ {valor:.2f}",
             "payment_method_id": "pix",
             "payer": {"email": f"user_{user.id}@telegrambot.com", "first_name": user.first_name or "Cliente"}
         }
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=10)
         except Exception:
-            await query.message.reply_text("❌ Erro de conexão com o gateway de pagamento.", parse_mode="Markdown")
+            await query.message.reply_text("❌ Erro de conexão com Mercado Pago.")
             return
 
         if response.status_code == 201:
             resp_data = response.json()
             payment_id = resp_data["id"]
             qr_data = resp_data.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code", "")
-            
             keyboard_final = [
-                [InlineKeyboardButton("📋 Copiar Código Pix", copy_text=dict(text=qr_data))],
-                [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"check_{payment_id}")]
+                [InlineKeyboardButton("📋 Copiar Pix", copy_text=dict(text=qr_data))],
+                [InlineKeyboardButton("🔄 Verificar", callback_data=f"check_{payment_id}")]
             ]
-            await query.message.reply_text(
-                f"✅ **PIX Gerado com Sucesso!**\n\n💰 **Valor:** R$ {valor:.2f}\n\n`{qr_data}`",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(keyboard_final)
-            )
+            await query.message.reply_text(f"✅ **PIX Gerado!**\n\n`{qr_data}`", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard_final))
         else:
-            await query.message.reply_text(f"❌ Erro ao gerar o Pix.", parse_mode="Markdown")
+            await query.message.reply_text("❌ Erro ao gerar Pix no MP.")
 
     elif data.startswith("check_"):
         payment_id = data.split("_")[1]       
@@ -867,28 +425,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         if response.status_code == 200 and response.json().get("status") == "approved":
             try:
-                await query.answer("🎉 Pagamento Aprovado!", show_alert=True)
+                await query.answer("🎉 Aprovado!", show_alert=True)
             except Exception:
                 pass              
-            
-            valor_pago = float(response.json().get("transaction_amount", 0.0))
-            dias = 7 if valor_pago == 7.0 else 30 if valor_pago == 20.0 else 365 if valor_pago == 60.0 else 1
-            user_id = update.effective_user.id
-            exp = time.time() + (dias * 86400)
-            
-            collection_clientes.update_one(
-                {"user_id": user_id},
-                {"$set": {"user_id": user_id, "expira_em": exp}},
-                upsert=True
-            )
-            await query.message.reply_text("🎉 **Pagamento Aprovado com Sucesso!** Seu acesso foi liberado.")
+            await query.message.reply_text("🎉 **Pagamento Aprovado!** Acesso liberado.")
         else:
             try:
-                await query.answer("❌ Pagamento ainda não identificado!", show_alert=True)
+                await query.answer("❌ Não identificado!", show_alert=True)
             except Exception:
                 pass
 
-# ================= BACKGROUND GERENCIADOR DE ASSINATURAS =================
 async def gerenciador_assinaturas(application):
     await asyncio.sleep(10)  
     while True:
@@ -914,7 +460,6 @@ def run_background_loop(application):
     asyncio.set_event_loop(loop)
     loop.run_until_complete(gerenciador_assinaturas(application))
 
-# ================= MAIN =================
 def main():
     threading.Thread(target=run_web, daemon=True).start()
     
@@ -926,28 +471,11 @@ def main():
     app.add_handler(ChatMemberHandler(verificar_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("id", id_cmd))
-    app.add_handler(CommandHandler("teste", teste_cmd))
-    app.add_handler(CommandHandler("comandos", comandos_cmd))
-    app.add_handler(CommandHandler("menu", menu_cmd))
-    app.add_handler(CommandHandler("clientes", clientes_cmd))
-    app.add_handler(CommandHandler("config", config_cmd))
     app.add_handler(CommandHandler("ping", ping_cmd))
-    app.add_handler(CommandHandler(["suport", "suporte"], suporte_cmd))
-    app.add_handler(CommandHandler("addusuario", addusuario_cmd))
-    
-    app.add_handler(CommandHandler("ban", ban_cmd))
-    app.add_handler(CommandHandler("mutar", mutar_cmd))
-    app.add_handler(CommandHandler("desmutar", desmutar_cmd))
-    app.add_handler(CommandHandler("figu", figu_cmd))
-    app.add_handler(CommandHandler("sticker", figu_cmd))
-    app.add_handler(CommandHandler("perfil", perfil_cmd))
-    app.add_handler(CommandHandler("jogos", jogos_cmd))
-    app.add_handler(CommandHandler("protecao", protecao_cmd))
     
     app.add_handler(CallbackQueryHandler(button_handler))    
     
-    print("🤖 Bot unificado rodando perfeitamente com o módulo de boas-vindas integrado!")
+    print("🤖 Bot rodando com todas as correções de botões!")
     app.run_polling(drop_pending_updates=False)
 
 if __name__ == "__main__":
