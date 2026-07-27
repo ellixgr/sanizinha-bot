@@ -26,7 +26,7 @@ def obter_punicao(chat_id: int):
         CONFIGS_PUNICAO[chat_id] = {
             "acao": "aviso_ban",  # Opções: "aviso_ban", "remover", "silenciar"
             "apagar_msg": True,   # Apagar a mensagem infratora
-            tempo_mute: 1         # Tempo de silenciamento em minutos
+            "tempo_mute": 1       # Corrigido: chave com aspas corretas
         }
     return CONFIGS_PUNICAO[chat_id]
 
@@ -96,13 +96,12 @@ async def enviar_painel_punicao(update: Update, context: ContextTypes.DEFAULT_TY
 
     punicao = obter_punicao(chat_id)
 
-    # Textos descritivos das ações
     acoes_nomes = {
         "aviso_ban": "⚠️ 1º Aviso, 2º Banimento",
         "remover": "🔨 Remover / Banir Direto",
         "silenciar": "🔇 Silenciar (Mute)"
     }
-    nome_acao_atual = acoes_nomes.get(punicao["acao"], "⚠️ Aviso e Ban")
+    nome_acao_atual = acoes_nomes.get(punicao["acao"], "⚠️ 1º Aviso, 2º Banimento")
     status_apagar = "🟢 Sim" if punicao["apagar_msg"] else "🔴 Não"
     tempo_str = f"{punicao['tempo_mute']} minuto(s)"
 
@@ -118,9 +117,9 @@ async def enviar_painel_punicao(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton(f"📌 Tipo: {nome_acao_atual}", callback_data="pun_trocar_acao")],
         [InlineKeyboardButton(f"🗑️ Apagar Msg: {status_apagar}", callback_data="pun_toggle_apagar")],
         [
-            InlineKeyboardButton("➖ Menos Tempo", callback_data="pun_tempo_menos"),
+            InlineKeyboardButton("➖ Menos", callback_data="pun_tempo_menos"),
             InlineKeyboardButton(f"⏱️ {punicao['tempo_mute']} min", callback_data="pun_ignorar"),
-            InlineKeyboardButton("➕ Mais Tempo", callback_data="pun_tempo_mais")
+            InlineKeyboardButton("➕ Mais", callback_data="pun_tempo_mais")
         ],
         [InlineKeyboardButton("🔙 Voltar às Proteções", callback_data="menu_protecoes")]
     ])
@@ -150,18 +149,20 @@ async def processar_callback_protecao(update: Update, context: ContextTypes.DEFA
     elif data == "menu_config_punicao":
         await enviar_painel_punicao(update, context)
 
+    elif data == "menu_protecoes":
+        await enviar_painel_protecoes(update, context)
+
     elif data == "pun_toggle_apagar":
         p = obter_punicao(chat_id)
         p["apagar_msg"] = not p["apagar_msg"]
-        await query.answer("Configuração de apagar mensagem alterada!")
+        await query.answer("Configuração alterada!")
         await enviar_painel_punicao(update, context)
 
     elif data == "pun_trocar_acao":
         p = obter_punicao(chat_id)
-        # Alterna entre os 3 modos de punição
         ciclo = {"aviso_ban": "remover", "remover": "silenciar", "silenciar": "aviso_ban"}
         p["acao"] = ciclo.get(p["acao"], "aviso_ban")
-        await query.answer(f"Modo de punição alterado!")
+        await query.answer("Modo de punição alterado!")
         await enviar_painel_punicao(update, context)
 
     elif data == "pun_tempo_menos":
@@ -170,20 +171,20 @@ async def processar_callback_protecao(update: Update, context: ContextTypes.DEFA
             p["tempo_mute"] -= 1
             await query.answer(f"Tempo reduzido para {p['tempo_mute']} min")
         else:
-            await query.answer("O tempo mínimo é de 1 minuto!", show_alert=False)
+            await query.answer("O tempo mínimo é 1 minuto!", show_alert=False)
         await enviar_painel_punicao(update, context)
 
     elif data == "pun_tempo_mais":
         p = obter_punicao(chat_id)
-        if p["tempo_mute"] < 1440:  # Máximo de 24 horas
+        if p["tempo_mute"] < 1440:
             p["tempo_mute"] += 1
             await query.answer(f"Tempo aumentado para {p['tempo_mute']} min")
         else:
-            await query.answer("O tempo máximo é de 1440 minutos (24h)!", show_alert=False)
+            await query.answer("O tempo máximo é 1440 minutos!", show_alert=False)
         await enviar_painel_punicao(update, context)
 
     elif data == "pun_ignorar":
-        await query.answer("Use os botões ➕ e ➖ para ajustar os minutos.", show_alert=False)
+        await query.answer("Use os botões ➕ e ➖ para ajustar.", show_alert=False)
 
 async def cmd_protecao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -204,7 +205,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not chat or not user or chat.type == "private":
         return
 
-    # ADM é 100% imune a todas as proteções
+    # Administradores são imunes
     if await is_admin(update, context, user.id, chat.id):
         return
 
@@ -215,7 +216,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     motivo_violacao = ""
     eh_flood = False
 
-    # 5. Anti-Flood
+    # 1. Verificação de Anti-Flood (Mensagens e comandos em massa rápidos)
     if cfg["antiflood"]:
         agora = time.time()
         chave = (chat.id, user.id)
@@ -225,17 +226,19 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
         REGISTRO_FLOOD[chave] = [t for t in REGISTRO_FLOOD[chave] if agora - t < 5]
         REGISTRO_FLOOD[chave].append(agora)
 
-        if len(REGISTRO_FLOOD[chave]) > 3:
+        if len(REGISTRO_FLOOD[chave]) > 3:  # Mais de 3 msgs em 5 segundos = Flood
             eh_flood = True
             violacao_detectada = True
-            motivo_violacao = "flood de comandos/mensagens"
+            motivo_violacao = "flood de mensagens/comandos"
 
-    # Se não foi flood, testa as outras travas
+    # 2. Demais proteções se não for flood
     if not eh_flood:
+        # Anti-Link corrigido para pegar links normais, t.me, @canais e domínios com segurança
         if cfg["antilink"]:
+            # Ignora comando /start direcionado ao próprio bot
             ignorar_chatbot = f"@{context.bot.username}" in texto_conteudo and message.text and message.text.startswith("/start")
             if not ignorar_chatbot:
-                padrao_link = r"(https?://\S+|t\.me/\S+|www\.\S+|@\w+|tg://\S+)"
+                padrao_link = r"(https?://\S+|t\.me/\S+|www\.\S+|@[A-Za-z0-9_]{5,}|tg://\S+)"
                 if message.forward_origin or re.search(padrao_link, texto_conteudo, re.IGNORECASE):
                     violacao_detectada = True
                     motivo_violacao = "link, canal ou menção externa"
@@ -253,7 +256,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             motivo_violacao = "trava de caracteres / golpe em massa"
 
     if violacao_detectada:
-        # Apaga mensagem se a opção estiver ativada nas configurações
+        # Apaga a mensagem se configurado
         if punicao["apagar_msg"]:
             try:
                 await message.delete()
@@ -262,15 +265,11 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         chave_aviso = (chat.id, user.id)
 
-        # Se for FLOOD, aplica o silenciamento configurado pelo adm
+        # Se for Flood, aplica o tempo configurado no painel de punição
         if eh_flood:
             try:
                 liberar_ate = timedelta(minutes=punicao["tempo_mute"])
-                await chat.restrict_member(
-                    user.id,
-                    permissions=False,
-                    until_date=liberar_ate
-                )
+                await chat.restrict_member(user.id, permissions=False, until_date=liberar_ate)
             except Exception:
                 pass
 
@@ -281,7 +280,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso)
             return
 
-        # Aplica a punição escolhida pelo ADM no painel de punições
+        # Aplica a punição escolhida pelo ADM no painel geral
         tipo_acao = punicao["acao"]
 
         if tipo_acao == "remover":
@@ -307,7 +306,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception:
                 pass
 
-        else:  # "aviso_ban" (1º aviso, reincidente bane)
+        else:  # Modo padrão: "aviso_ban" (1º aviso, reincidente bane)
             if chave_aviso not in REGISTRO_AVISADOS:
                 REGISTRO_AVISADOS[chave_aviso] = True
                 aviso = await chat.send_message(
