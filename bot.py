@@ -246,8 +246,11 @@ def main():
     from comandos.protecao import registrar_protecoes
     from comandos.play import setup_play
     from comandos.deploy import registrar_deploy
+    from comandos.rank import registrar_rank
+    
 
     registrar_promover(app)
+    registrar_rank(app)
     registrar_marcar(app)
     registrar_citar(app)
     registrar_protecoes(app)
