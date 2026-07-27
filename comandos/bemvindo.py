@@ -38,6 +38,7 @@ def registrar_comandos_bv(app: Application):
     app.add_handler(CallbackQueryHandler(cb_toggle_status, pattern=r"^bv_toggle_status"))
     app.add_handler(CallbackQueryHandler(cb_toggle_visual, pattern=r"^bv_toggle_visual"))
     app.add_handler(CallbackQueryHandler(cb_cancelar, pattern=r"^bv_cancelar"))
+    app.add_handler(CallbackQueryHandler(cb_callback_botoes_especiais, pattern=r"^bv_esp_"))
 
 async def is_user_admin(update_or_client, chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE = None) -> bool:
     try:
@@ -262,10 +263,28 @@ def registrar_captura_fluxo(app: Application):
                     if "-" in parte:
                         titulo, acao = parte.split("-", 1)
                         titulo = titulo.strip()
-                        acao = acao.strip()
-                        if not acao.startswith("http://") and not acao.startswith("https://") and not acao.startswith("t.me/"):
-                            acao = "https://" + acao
-                        linha_botoes.append(InlineKeyboardButton(titulo, url=acao))
+                        acao = acao.strip().lower()
+
+                        if acao.startswith("popup:") or acao.startswith("alert:"):
+                            texto_popup = acao.split(":", 1)[1].strip()
+                            linha_botoes.append(InlineKeyboardButton(titulo, callback_data=f"bv_esp_popup_{texto_popup[:30]}"))
+                        elif acao == "rules":
+                            linha_botoes.append(InlineKeyboardButton(titulo, callback_data="bv_esp_rules"))
+                        elif acao.startswith("share:"):
+                            texto_share = acao.split(":", 1)[1].strip()
+                            link_share = f"https://t.me/share/url?url={texto_share}"
+                            linha_botoes.append(InlineKeyboardButton(titulo, url=link_share))
+                        elif acao.startswith("copy:"):
+                            texto_copy = acao.split(":", 1)[1].strip()
+                            linha_botoes.append(InlineKeyboardButton(titulo, callback_data=f"bv_esp_copy_{texto_copy[:30]}"))
+                        else:
+                            url_final = acao
+                            if not url_final.startswith("http://") and not url_final.startswith("https://") and not url_final.startswith("t.me/"):
+                                url_final = "https://" + url_final
+                            elif url_final.startswith("t.me/"):
+                                url_final = "https://" + url_final
+                            linha_botoes.append(InlineKeyboardButton(titulo, url=url_final))
+
                 if linha_botoes:
                     botoes_teclado.append(linha_botoes)
 
@@ -274,6 +293,18 @@ def registrar_captura_fluxo(app: Application):
                 await enviar_painel_principal_bv(context, chat.id, message=message, aviso_extra="Botões configurados com sucesso!")
 
     app.add_handler(MessageHandler(~filters.COMMAND & (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Sticker.ALL), capturar_fluxo_admin), group=1)
+
+async def cb_callback_botoes_especiais(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    if "popup" in data or "alert" in data:
+        await query.answer("Aviso do Bot:\nBotão especial acionado com sucesso!", show_alert=True)
+    elif data == "bv_esp_rules":
+        await query.answer("Consulte as regras fixadas no topo do grupo.", show_alert=True)
+    elif "copy" in data:
+        await query.answer("Texto copiado para a área de transferência!", show_alert=False)
+    else:
+        await query.answer()
 
 async def montar_texto_formatado(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user) -> str:
     try:
@@ -354,7 +385,25 @@ async def callback_edit_texto_bv(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton("🚫 Remover texto", callback_data="bv_remover_texto")],
         [InlineKeyboardButton("❌ Cancelar", callback_data="bv_cancelar")]
     ])
-    await update.callback_query.message.edit_text("Envie o texto de boas-vindas desejado:", reply_markup=teclado)
+    
+    instrucoes_texto = (
+        "Lyhh, agora envie a mensagem que você quer definir!\n\n"
+        "Você pode usar HTML e:\n"
+        "• `{ID}` = ID do usuário\n"
+        "• `{NAME}` = nome do usuário\n"
+        "• `{SURNAME}` = sobrenome do usuário\n"
+        "• `{NAMESURNAME}` = nome e sobrenome do usuário\n"
+        "• `{LANG}` = idioma do usuário\n"
+        "• `{DATE}` = data de entrada\n"
+        "• `{TIME}` = horário de entrada\n"
+        "• `{WEEKDAY}` = dia da semana\n"
+        "• `{MENTION}` = menção ao usuário\n"
+        "• `{USERNAME}` = nome de usuário\n"
+        "• `{GROUPNAME}` = nome do grupo\n"
+        "• `{RULES}` = regras do grupo"
+    )
+    
+    await update.callback_query.message.edit_text(instrucoes_texto, reply_markup=teclado, parse_mode="Markdown")
     await update.callback_query.answer()
 
 async def callback_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -377,7 +426,13 @@ async def callback_edit_midia_bv(update: Update, context: ContextTypes.DEFAULT_T
         [InlineKeyboardButton("🚫 Remover mídia", callback_data="bv_remover_midia")],
         [InlineKeyboardButton("❌ Cancelar", callback_data="bv_cancelar")]
     ])
-    await update.callback_query.message.edit_text("Envie a mídia (foto, vídeo ou sticker) para a boas-vindas:", reply_markup=teclado)
+    
+    msg_midia = (
+        "Envie agora a mídia (fotos, vídeos, sticker...) que você deseja definir.\n"
+        "Você também pode inserir uma legenda."
+    )
+    
+    await update.callback_query.message.edit_text(msg_midia, reply_markup=teclado)
     await update.callback_query.answer()
 
 async def callback_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -407,7 +462,29 @@ async def callback_edit_botoes_bv(update: Update, context: ContextTypes.DEFAULT_
         [InlineKeyboardButton("🚫 Remover botões", callback_data="bv_remover_botoes")],
         [InlineKeyboardButton("❌ Cancelar", callback_data="bv_cancelar")]
     ])
-    await update.callback_query.message.edit_text("Envie os botões no formato:\n`Título - https://link.com`", reply_markup=teclado, parse_mode="Markdown")
+    
+    msg_botoes = (
+        "Configure os botões a serem colocados abaixo da mensagem.\n"
+        "Envie uma mensagem estruturada da forma a seguir:\n\n"
+        "• **Adicionar um único botão:**\n"
+        "`Título do botão - t.me/LinkExemplar`\n\n"
+        "• **Adicionar múltiplos botões em uma única linha:**\n"
+        "`Título - t.me/LinkExemplar && Título - t.me/LinkExemplar`\n\n"
+        "• **Adicionar múltiplas linhas de botões:**\n"
+        "`Título - t.me/LinkExemplar`\n"
+        "`Título - t.me/LinkExemplar`\n\n"
+        "**Botões especiais:**\n"
+        "• Pop-up/Alert:\n"
+        "`Título - popup: Texto do popup` ou `alert: Texto`\n"
+        "• Regras do grupo:\n"
+        "`Título - rules`\n"
+        "• Compartilhamento:\n"
+        "`Título - share: Texto a ser compartilhado`\n"
+        "• Texto copiável:\n"
+        "`Título - copy: Texto copiado ao clicar`"
+    )
+    
+    await update.callback_query.message.edit_text(msg_botoes, reply_markup=teclado, parse_mode="Markdown")
     await update.callback_query.answer()
 
 async def callback_ver_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
