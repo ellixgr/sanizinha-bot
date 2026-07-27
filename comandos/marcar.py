@@ -1,12 +1,57 @@
 from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
+from telegram.ext import CommandHandler, MessageHandler, ContextTypes, filters
+from pymongo import MongoClient
+import os
 
+# Configuração do MongoDB (usando a mesma base do seu projeto)
+MONGO_URI = os.getenv("MONGO_URI", "sua_uri_do_mongodb_aqui")
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client["sanizinha_bot"]
+col_membros = db["membros_grupo"]
+
+# 1. Salva automaticamente cada usuário que mandar mensagem no grupo
+async def capturar_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    
+    if not chat or not user or chat.type == "private":
+        return
+        
+    if user.is_bot:
+        return
+
+    col_membros.update_one(
+        {"chat_id": chat.id, "user_id": user.id},
+        {
+            "$set": {
+                "username": user.username,
+                "first_name": user.first_name
+            }
+        },
+        upsert=True
+    )
+
+# 2. Remove do MongoDB quando o usuário sai do grupo (Economiza espaço!)
+async def remover_membro_saiu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    left_member = update.message.left_chat_member
+    
+    if not chat or not left_member:
+        return
+        
+    # Deleta o usuário específico deste grupo no banco
+    col_membros.delete_one({
+        "chat_id": chat.id,
+        "user_id": left_member.id
+    })
+
+# 3. Comando /marcar que busca os usuários salvos no banco e marca
 async def marcar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     
     if chat.type == "private":
-        await update.message.reply_text("⚠️ Este comando só pode ser usado em grupos.")
+        await update.message.reply_text("⚠️ Apenas em grupos.")
         return
 
     # Validação rigorosa de Administrador
@@ -16,24 +61,49 @@ async def marcar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ Apenas administradores podem usar este comando!")
             return
     except Exception:
-        await update.message.reply_text("⚠️ Erro ao verificar suas permissões de administrador.")
         return
 
     texto_chamada = " ".join(context.args) if context.args else "Atenção todos!"
     
-    # Apaga a mensagem do comando digitado
+    # Apaga a mensagem do comando
     try:
         await update.message.delete()
     except Exception:
         pass
 
-    # Envia a chamada geral formatada
+    # Busca todos os usuários salvos deste grupo no banco de dados
+    membros_salvos = col_membros.find({"chat_id": chat.id})
+    
+    mencoes = []
+    for m in membros_salvos:
+        username = m.get("username")
+        uid = m["user_id"]
+        nome = m.get("first_name", "Membro")
+        
+        if username:
+            mencoes.append(f"@{username}")
+        else:
+            mencoes.append(f"[{nome}](tg://user?id={uid})")
+
+    if not mencoes:
+        lista_mencoes = "Nenhum membro registrado ainda no banco."
+    else:
+        lista_mencoes = " ".join(mencoes)
+
     msg_final = (
         f"📢 **{texto_chamada}**\n\n"
-        f"👥 *Chamada geral disparada por* {user.mention_markdown()}"
+        f"{lista_mencoes}\n\n"
+        f"_(Chamada geral convocada por {user.mention_markdown()})_"
     )
     
-    await chat.send_message(msg_final, parse_mode="Markdown")
+    try:
+        await chat.send_message(msg_final, parse_mode="Markdown")
+    except Exception:
+        await chat.send_message(f"📢 **{texto_chamada}**\n\n*(Muitos membros para marcar de uma vez só, lista excedeu o limite)*", parse_mode="Markdown")
 
 def registrar_marcar(app):
     app.add_handler(CommandHandler(["marcar", "todos", "tagall"], marcar_cmd))
+    # Salva o membro quando ele manda mensagem
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
+    # Remove do banco automaticamente se o membro sair do grupo
+    app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
