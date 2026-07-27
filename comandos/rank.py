@@ -8,11 +8,10 @@ MONGO_URI = os.environ.get("MONGO_URI")
 DONO_ID = os.environ.get("DONO_ID")
 
 def limpar_nome(nome: str) -> str:
-    """Remove caracteres que possam quebrar o Markdown do Telegram"""
+    """Remove caracteres problemáticos do nome"""
     if not nome:
         return "Membro"
-    # Remove colchetes, asteriscos, sublinhados e crases do nome para evitar conflito
-    return re.sub(r'[_*`\[\]]', '', nome)
+    return re.sub(r'[_*`\[\]()]', '', nome)
 
 async def gerar_texto_rank(chat, context):
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000, tlsAllowInvalidCertificates=True)
@@ -29,13 +28,13 @@ async def gerar_texto_rank(chat, context):
     if not top_usuarios:
         return None
     
-    texto_rank = f"🏆 𝐑𝐀𝐍𝐊 𝐀𝐓𝐈𝐕𝐎𝐒 𝐃𝐎 𝐂𝐇𝐀𝐓\n               ┑(￣▽￣)┍\n\n"
+    texto_rank = "🏆 RANK ATIVOS DO CHAT\n               ┑(￣▽￣)┍\n\n"
 
     for i, doc in enumerate(top_usuarios, start=1):
         user_id = doc.get("user_id")
         total_msgs = doc.get("total_mensagens", 0)
 
-        mencao_usuario = f"Usuário `{user_id}`"
+        mencao_usuario = f"Usuário {user_id}"
         try:
             membro_info = await context.bot.get_chat_member(chat.id, user_id)
             tg_user = membro_info.user
@@ -43,12 +42,11 @@ async def gerar_texto_rank(chat, context):
             if tg_user.username:
                 mencao_usuario = f"@{tg_user.username}"
             elif tg_user.first_name:
-                nome_limpo = limpar_nome(tg_user.first_name)
-                mencao_usuario = f"[{nome_limpo}](tg://user?id={user_id})"
+                # Exibe apenas o nome limpo em texto puro para evitar qualquer erro de entidade
+                mencao_usuario = limpar_nome(tg_user.first_name)
         except Exception:
             pass
 
-        # Define os emojis e o layout das caixas
         if i == 1:
             pos_icon = "🥇 1º LUGAR"
         elif i == 2:
@@ -70,11 +68,10 @@ async def gerar_texto_rank(chat, context):
         else:
             pos_icon = "🔟 10º LUGAR"
 
-        # Bloco estilizado seguro
         texto_rank += (
             f"{pos_icon}\n"
             f"├ 👤 Usuario: {mencao_usuario}\n"
-            f"├ 💬 Msg: `{total_msgs}`\n"
+            f"├ 💬 Msg: {total_msgs}\n"
             f"╰━━━━━━━━━━━━━━━\n\n"
         )
 
@@ -88,7 +85,6 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Este comando só pode ser usado dentro de grupos!")
         return
 
-    # Verificação de Administrador ou Dono
     is_admin = False
     if DONO_ID and str(user.id) == str(DONO_ID):
         is_admin = True
@@ -101,7 +97,7 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     if not is_admin:
-        await update.message.reply_text("⚠️ Apenas administradores do grupo podem usar o comando `/rank`!", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ Apenas administradores do grupo podem usar o comando /rank!")
         return
 
     try:
@@ -114,7 +110,7 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔄 Atualizar Ranking", callback_data="atualizar_rank")]
         ])
 
-        await update.message.reply_text(texto_rank, reply_markup=teclado, parse_mode="Markdown")
+        await update.message.reply_text(texto_rank, reply_markup=teclado)
 
     except Exception as e:
         await update.message.reply_text(f"❌ Erro ao gerar o ranking: {e}")
@@ -150,7 +146,7 @@ async def callback_atualizar_rank(update: Update, context: ContextTypes.DEFAULT_
         ])
 
         try:
-            await query.message.edit_text(texto_rank, reply_markup=teclado, parse_mode="Markdown")
+            await query.message.edit_text(texto_rank, reply_markup=teclado)
             await query.answer("✅ Ranking atualizado com sucesso!")
         except Exception as telegram_error:
             if "Message is not modified" in str(telegram_error):
