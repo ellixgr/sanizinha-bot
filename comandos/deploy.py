@@ -1,7 +1,75 @@
 import os
+import asyncio
 import aiohttp
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
+
+async def monitorar_status_deploy(bot, chat_id, message_id, api_key, service_id, deploy_id):
+    url = f"https://api.render.com/v1/services/{service_id}/deploys/{deploy_id}"
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    # Aguarda um momento inicial para o Render registrar o início da build
+    await asyncio.sleep(10)
+
+    status_anterior = "building"
+    tentativas_max = 60  # Limite de segurança (cerca de 5 a 10 minutos)
+    tentativa = 0
+
+    async with aiohttp.ClientSession() as session:
+        while tentativa < tentativas_max:
+            try:
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        deploy_info = data.get("deploy", {})
+                        status = deploy_info.get("status") # ex: building, live, build_failed, canceled
+
+                        # Se o status mudou para building/iniciado e ainda não avisamos
+                        if status == "building" and status_anterior != "building":
+                            status_anterior = "building"
+                            try:
+                                await bot.edit_message_text(
+                                    chat_id=chat_id,
+                                    message_id=message_id,
+                                    text=f"🚀 **Deploy Iniciado no Render!**\n\nID: `{deploy_id}`\nO código está sendo compilado...",
+                                    parse_mode="Markdown"
+                                )
+                            except Exception:
+                                pass
+
+                        # Se o deploy terminou com sucesso (bot reiniciou)
+                        elif status == "live":
+                            try:
+                                await bot.edit_message_text(
+                                    chat_id=chat_id,
+                                    message_id=message_id,
+                                    text=f"✅ **Deploy Concluído com Sucesso!**\n\nID: `{deploy_id}`\nO bot foi reiniciado e já está online.",
+                                    parse_mode="Markdown"
+                                )
+                            except Exception:
+                                pass
+                            break
+
+                        # Se deu erro no deploy
+                        elif status in ["build_failed", "canceled", "update_failed"]:
+                            try:
+                                await bot.edit_message_text(
+                                    chat_id=chat_id,
+                                    message_id=message_id,
+                                    text=f"❌ **O Deploy Falhou!**\n\nID: `{deploy_id}`\nStatus no Render: `{status}`",
+                                    parse_mode="Markdown"
+                                )
+                            except Exception:
+                                pass
+                            break
+            except Exception:
+                pass
+
+            tentativa += 1
+            await asyncio.sleep(10) # Verifica a cada 10 segundos
 
 async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -40,7 +108,6 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
         "Content-Type": "application/json"
     }
     
-    # CORRIGIDO: A API do Render exige a string "clear" em vez de true
     payload = {
         "clearCache": "clear"
     }
@@ -50,25 +117,34 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
             async with session.post(url, json=payload, headers=headers) as response:
                 if response.status in [200, 201]:
                     data = await response.json()
-                    deploy_id = data.get("deploy", {}).get("id", "Desconhecido")
-                    texto_sucesso = f"✅ **Clear Build Cache & Deploy disparado com sucesso!**\n\nID do Deploy: `{deploy_id}`\nO Render já está compilando do zero."
+                    deploy_data = data.get("deploy", {})
+                    deploy_id = deploy_data.get("id", "Desconhecido")
+                    
+                    texto_inicial = f"🔄 **Clear Build Cache & Deploy disparado!**\n\nID do Deploy: `{deploy_id}`\nAguardando o Render iniciar a compilação..."
+                    
                     if update.callback_query:
-                        await msg.edit_text(texto_sucesso, parse_mode="Markdown")
+                        await msg.edit_text(texto_inicial, parse_mode="Markdown")
                     else:
-                        await msg.edit_text(texto_sucesso, parse_mode="Markdown")
+                        msg = await msg.edit_text(texto_inicial, parse_mode="Markdown")
+
+                    # Inicia a tarefa em segundo plano para monitorar o status até o fim
+                    context.application.create_task(
+                        monitorar_status_deploy(
+                            context.bot,
+                            msg.chat_id,
+                            msg.message_id,
+                            api_key,
+                            service_id,
+                            deploy_id
+                        )
+                    )
                 else:
                     erro_texto = await response.text()
                     texto_falha = f"❌ Erro ao comunicar com a API do Render:\n`{erro_texto}`"
-                    if update.callback_query:
-                        await msg.edit_text(texto_falha, parse_mode="Markdown")
-                    else:
-                        await msg.edit_text(texto_falha, parse_mode="Markdown")
+                    await msg.edit_text(texto_falha, parse_mode="Markdown")
     except Exception as e:
         texto_ex = f"❌ Erro interno ao executar o comando: {e}"
-        if update.callback_query:
-            await msg.edit_text(texto_ex)
-        else:
-            await msg.edit_text(texto_ex)
+        await msg.edit_text(texto_ex)
 
 async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await executar_clear_deploy(update, context)
