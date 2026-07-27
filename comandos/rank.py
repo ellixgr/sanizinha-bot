@@ -153,8 +153,16 @@ async def callback_atualizar_rank(update: Update, context: ContextTypes.DEFAULT_
             [InlineKeyboardButton("🔄 Atualizar Ranking", callback_data="atualizar_rank")]
         ])
 
-        await query.message.edit_text(texto_rank, reply_markup=teclado, parse_mode="Markdown")
-        await query.answer("✅ Ranking atualizado com sucesso!")
+        try:
+            await query.message.edit_text(texto_rank, reply_markup=teclado, parse_mode="Markdown")
+            await query.answer("✅ Ranking atualizado com sucesso!")
+        except Exception as telegram_error:
+            # Se o erro for porque o conteúdo é exatamente o mesmo, avisa de forma limpa
+            if "Message is not modified" in str(telegram_error):
+                await query.answer("✨ O ranking já está atualizado com os dados mais recentes!", show_alert=False)
+            else:
+                raise telegram_error
+
     except Exception as e:
         await query.answer(f"❌ Erro ao atualizar: {e}", show_alert=True)
 
