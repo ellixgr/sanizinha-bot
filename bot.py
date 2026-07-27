@@ -178,6 +178,7 @@ def main():
     from comandos.citar import registrar_citar
     from comandos.protecao import registrar_protecoes
     from comandos.play import setup_play
+    from comandos.deploy import registrar_deploy
 
     registrar_promover(app)
     registrar_marcar(app)
@@ -190,6 +191,7 @@ def main():
     registrar_ban(app)
     setup_play(app)
     registrar_mutar(app)
+    registrar_deploy(app)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
