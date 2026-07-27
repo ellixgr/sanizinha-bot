@@ -2,18 +2,17 @@ import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from pymongo import MongoClient
+import re
 
 MONGO_URI = os.environ.get("MONGO_URI")
 DONO_ID = os.environ.get("DONO_ID")
 
-def escapar_markdown_simples(texto: str) -> str:
-    """Escapa apenas caracteres perigosos comuns mantendo nomes seguros"""
-    if not texto:
+def limpar_nome(nome: str) -> str:
+    """Remove caracteres que possam quebrar o Markdown do Telegram"""
+    if not nome:
         return "Membro"
-    caracteres = ['*', '_', '`', '[']
-    for c in caracteres:
-        texto = texto.replace(c, f"\\{c}")
-    return texto
+    # Remove colchetes, asteriscos, sublinhados e crases do nome para evitar conflito
+    return re.sub(r'[_*`\[\]]', '', nome)
 
 async def gerar_texto_rank(chat, context):
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000, tlsAllowInvalidCertificates=True)
@@ -36,23 +35,20 @@ async def gerar_texto_rank(chat, context):
         user_id = doc.get("user_id")
         total_msgs = doc.get("total_mensagens", 0)
 
-        # Tenta buscar os dados do usuário para pegar o @username ou formatar o nome
         mencao_usuario = f"Usuário `{user_id}`"
         try:
             membro_info = await context.bot.get_chat_member(chat.id, user_id)
             tg_user = membro_info.user
             
             if tg_user.username:
-                # Username com @ não precisa escapar link
                 mencao_usuario = f"@{tg_user.username}"
             elif tg_user.first_name:
-                nome_seguro = escapar_markdown_simples(tg_user.first_name)
-                # Formato padrão seguro do Telegram para menção por ID sem quebrar entidades
-                mencao_usuario = f"[{nome_seguro}](tg://user?id={user_id})"
+                nome_limpo = limpar_nome(tg_user.first_name)
+                mencao_usuario = f"[{nome_limpo}](tg://user?id={user_id})"
         except Exception:
             pass
 
-        # Define os emojis e o layout das caixas conforme solicitado
+        # Define os emojis e o layout das caixas
         if i == 1:
             pos_icon = "🥇 1º LUGAR"
         elif i == 2:
@@ -74,7 +70,7 @@ async def gerar_texto_rank(chat, context):
         else:
             pos_icon = "🔟 10º LUGAR"
 
-        # Bloco estilizado
+        # Bloco estilizado seguro
         texto_rank += (
             f"{pos_icon}\n"
             f"├ 👤 Usuario: {mencao_usuario}\n"
@@ -114,7 +110,6 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📊 Ainda não há dados de mensagens registrados neste grupo.")
             return
 
-        # Botão de atualizar rank
         teclado = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 Atualizar Ranking", callback_data="atualizar_rank")]
         ])
@@ -129,7 +124,6 @@ async def callback_atualizar_rank(update: Update, context: ContextTypes.DEFAULT_
     chat = query.message.chat
     user = query.from_user
 
-    # Verifica se quem clicou no botão também é admin ou dono
     is_admin = False
     if DONO_ID and str(user.id) == str(DONO_ID):
         is_admin = True
