@@ -20,6 +20,93 @@ BOTOES_BV = {}
 STATUS_BV = {}  
 ESTADOS_FLUXO = {} 
 
+def registrar_captura_fluxo(app: Application):
+    async def capturar_fluxo_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        message = update.message
+        if not message or not message.from_user:
+            return
+
+        chat_id = message.chat.id
+        user_id = message.from_user.id
+        chave_fluxo = (chat_id, user_id)
+
+        if chave_fluxo not in ESTADOS_FLUXO:
+            return
+
+        if not await is_user_admin(update, chat_id, user_id, context):
+            ESTADOS_FLUXO.pop(chave_fluxo, None)
+            await message.reply_text("⚠️ Apenas administradores!")
+            return
+
+        estado_info = ESTADOS_FLUXO.pop(chave_fluxo, None)
+        if not estado_info:
+            return
+
+        estado, painel_msg_id = estado_info
+
+        if painel_msg_id:
+            try:
+                await context.bot.delete_message(chat_id, painel_msg_id)
+            except Exception:
+                pass
+
+        if estado == "aguardando_texto_bv":
+            texto = message.text or message.caption or ""
+            TEXTOS_BV[chat_id] = texto
+            await enviar_painel_principal_bv(context, chat_id, message=message, aviso_extra="Texto configurado com sucesso!")
+
+        elif estado == "aguardando_midia_bv":
+            tipo = None
+            file_id = None
+            leg = message.caption or message.text or ""
+
+            if message.photo:
+                tipo = "photo"
+                file_id = message.photo[-1].file_id
+            elif message.video:
+                tipo = "video"
+                file_id = message.video.file_id
+            elif message.sticker:
+                tipo = "sticker"
+                file_id = message.sticker.file_id
+            else:
+                return
+
+            MIDIAS_BV[chat_id] = (tipo, file_id, leg)
+            if leg and chat_id not in TEXTOS_BV:
+                TEXTOS_BV[chat_id] = leg
+
+            await enviar_painel_principal_bv(context, chat_id, message=message, aviso_extra="Mídia configurada com sucesso!")
+
+        elif estado == "aguardando_botoes_bv":
+            if not message.text:
+                return
+
+            linhas_texto = message.text.split("\n")
+            botoes_teclado = []
+
+            for linha in linhas_texto:
+                if not linha.strip():
+                    continue
+                partes_linha = linha.split("&&")
+                linha_botoes = []
+                for parte in partes_linha:
+                    if "-" in parte:
+                        titulo, acao = parte.split("-", 1)
+                        titulo = titulo.strip()
+                        acao = acao.strip()
+                        if not acao.startswith("http://") and not acao.startswith("https://") and not acao.startswith("t.me/"):
+                            acao = "https://" + acao
+                        linha_botoes.append(InlineKeyboardButton(titulo, url=acao))
+                if linha_botoes:
+                    botoes_teclado.append(linha_botoes)
+
+            if botoes_teclado:
+                BOTOES_BV[chat_id] = InlineKeyboardMarkup(botoes_teclado)
+                await enviar_painel_principal_bv(context, chat_id, message=message, aviso_extra="Botões configurados com sucesso!")
+
+    app.add_handler(MessageHandler(~filters.COMMAND & (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Sticker.ALL), capturar_fluxo_admin), group=1)
+
 def registrar_comandos_bv(app: Application):
     registrar_captura_fluxo(app)
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & ~filters.ChatType.PRIVATE, boas_vindas_handler))
@@ -198,64 +285,6 @@ async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id
             await context.bot.send_message(chat_id=chat_id, text=texto_painel, reply_markup=teclado, parse_mode="Markdown")
         except Exception:
             pass
-
-
-        if estado == "aguardando_texto_bv":
-            texto = message.text or message.caption or ""
-            TEXTOS_BV[chat_id] = texto
-            await enviar_painel_principal_bv(context, chat_id, message=message, aviso_extra="Texto configurado com sucesso!")
-
-        elif estado == "aguardando_midia_bv":
-            tipo = None
-            file_id = None
-            leg = message.caption or message.text or ""
-
-            if message.photo:
-                tipo = "photo"
-                file_id = message.photo[-1].file_id
-            elif message.video:
-                tipo = "video"
-                file_id = message.video.file_id
-            elif message.sticker:
-                tipo = "sticker"
-                file_id = message.sticker.file_id
-            else:
-                return
-
-            MIDIAS_BV[chat_id] = (tipo, file_id, leg)
-            if leg and chat_id not in TEXTOS_BV:
-                TEXTOS_BV[chat_id] = leg
-
-            await enviar_painel_principal_bv(context, chat_id, message=message, aviso_extra="Mídia configurada com sucesso!")
-
-        elif estado == "aguardando_botoes_bv":
-            if not message.text:
-                return
-
-            linhas_texto = message.text.split("\n")
-            botoes_teclado = []
-
-            for linha in linhas_texto:
-                if not linha.strip():
-                    continue
-                partes_linha = linha.split("&&")
-                linha_botoes = []
-                for parte in partes_linha:
-                    if "-" in parte:
-                        titulo, acao = parte.split("-", 1)
-                        titulo = titulo.strip()
-                        acao = acao.strip()
-                        if not acao.startswith("http://") and not acao.startswith("https://") and not acao.startswith("t.me/"):
-                            acao = "https://" + acao
-                        linha_botoes.append(InlineKeyboardButton(titulo, url=acao))
-                if linha_botoes:
-                    botoes_teclado.append(linha_botoes)
-
-            if botoes_teclado:
-                BOTOES_BV[chat_id] = InlineKeyboardMarkup(botoes_teclado)
-                await enviar_painel_principal_bv(context, chat_id, message=message, aviso_extra="Botões configurados com sucesso!")
-
-    app.add_handler(MessageHandler(~filters.COMMAND & (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Sticker.ALL), capturar_fluxo_admin), group=1)
 
 async def montar_texto_formatado(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user) -> str:
     try:
