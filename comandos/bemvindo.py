@@ -33,14 +33,13 @@ def carregar_dados_bv(chat_id: int):
         return None, None, None, True
     
     texto = doc.get("texto")
-    midia = doc.get("midia") # Espera-se uma lista/tupla: [tipo, file_id, legenda]
+    midia = doc.get("midia")
     if midia:
         midia = tuple(midia)
     
-    botoes_raw = doc.get("botoes") # Armazenamos a lista de linhas/botões ou o formato bruto para reconstruir
+    botoes_raw = doc.get("botoes")
     botoes = None
     if botoes_raw:
-        # Recontrói o InlineKeyboardMarkup a partir da estrutura salva
         teclado_linhas = []
         for linha in botoes_raw:
             linha_botoes = []
@@ -56,7 +55,6 @@ def carregar_dados_bv(chat_id: int):
     return texto, midia, botoes, status
 
 def salvar_no_mongo(chat_id: int, campo: str, valor):
-    # Converte InlineKeyboardMarkup para formato serializável se necessário
     if campo == "botoes" and isinstance(valor, InlineKeyboardMarkup):
         serializavel = []
         for linha in valor.inline_keyboard:
@@ -94,9 +92,9 @@ def alternar_status_mongo(chat_id: int) -> bool:
     )
     return novo_status
 
-# --- MENSAGENS PRONTAS (TEMPLATES) ---
-MENSAGENS_PRINT_PRESETS = {
-    "preset_1": (
+# --- MENSAGENS PRONTAS (COM PRÉ-VISUALIZAÇÃO) ---
+MENSAGENS_PRontas = {
+    "legenda_1": (
         "{MENTION}\n"
         "👾 •𝑬𝑵𝑻𝑹𝑶𝑼 𝑺𝑬 𝑨𝑷𝑹𝑬𝑺𝑬𝑵𝑻𝑨•\n"
         "📸 •F𝜣T𝜣\n"
@@ -105,7 +103,7 @@ MENSAGENS_PRINT_PRESETS = {
         "🗓️ •ID∆DE\n"
         "⚠️ •LEI∆ ∆S REGR∆S D𝜣 GRUP𝜣"
     ),
-    "preset_2": (
+    "legenda_2": (
         "🔥 Seja muito bem-vindo(a), {MENTION}!\n\n"
         "✨ **Ficha obrigatória para entrosar:**\n"
         "👤 Nome: \n"
@@ -114,7 +112,7 @@ MENSAGENS_PRINT_PRESETS = {
         "📸 Foto no perfil?\n\n"
         "⚠️ Respeite as regras do {GROUPNAME} para evitar banimento!"
     ),
-    "preset_3": (
+    "legenda_3": (
         "🎉 Olha só quem chegou para agitar o **{GROUPNAME}**!\n\n"
         "E aí {MENTION}, casa nova! Já vai mandando:\n"
         "⚡ Seu nome ou apelido\n"
@@ -122,7 +120,7 @@ MENSAGENS_PRINT_PRESETS = {
         "⚡ Manda a self/foto\n\n"
         "Divirta-se com moderação e siga as diretrizes do grupo! 🚀"
     ),
-    "preset_4": (
+    "legenda_4": (
         "💎 **NOVO MEMBRO NA ÁREA!** 💎\n\n"
         "Seja bem-vindo(a), {MENTION} ao {GROUPNAME}.\n"
         "Para mantermos a organização, mande sua mini-apresentação:\n"
@@ -131,7 +129,7 @@ MENSAGENS_PRINT_PRESETS = {
         "🎯 O que curte fazer?\n\n"
         "Divirta-se e faça novas amizades!"
     ),
-    "preset_5": (
+    "legenda_5": (
         "⭐ *Atenção galera, mais um integrante chegou!* ⭐\n\n"
         "Bem-vindo(a), {MENTION}! 🥳\n"
         "Não fique acanhado(a), solte sua apresentação no chat:\n"
@@ -140,7 +138,7 @@ MENSAGENS_PRINT_PRESETS = {
         "📌 Mande uma foto pra galera te conhecer\n\n"
         "Leia as regras fixadas e aproveite o {GROUPNAME}!"
     ),
-    "preset_6": (
+    "legenda_6": (
         "🚀 **PASSAPORTE CARIMBADO!** 🚀\n\n"
         " {MENTION} acabou de pousar no {GROUPNAME}!\n\n"
         "📝 Apresente-se para o clã:\n"
@@ -170,7 +168,7 @@ def registrar_comandos_bv(app: Application):
     app.add_handler(CallbackQueryHandler(cb_toggle_visual, pattern=r"^bv_toggle_visual"))
     app.add_handler(CallbackQueryHandler(cb_cancelar, pattern=r"^bv_cancelar"))
     app.add_handler(CallbackQueryHandler(cb_menu_mensagens_prontas, pattern=r"^bv_mensagens_prontas"))
-    app.add_handler(CallbackQueryHandler(cb_aplicar_preset, pattern=r"^bv_preset_"))
+    app.add_handler(CallbackQueryHandler(cb_aplicar_legenda, pattern=r"^bv_legenda_"))
     app.add_handler(CallbackQueryHandler(cb_callback_botoes_especiais, pattern=r"^bv_esp_"))
 
 async def is_user_admin(update_or_client, chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE = None) -> bool:
@@ -441,44 +439,74 @@ def registrar_captura_fluxo(app: Application):
 
     app.add_handler(MessageHandler(~filters.COMMAND & (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Sticker.ALL), capturar_fluxo_admin), group=1)
 
-# --- MENU DE MENSAGENS PRONTAS ---
+# --- MENU DE MENSAGENS PRONTAS COM PRÉ-VISUALIZAÇÃO ---
 async def cb_menu_mensagens_prontas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await verificar_permissao_callback(update, context):
         return
     
     query = update.callback_query
     teclado = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📌 Preset 1 (Sua Opção)", callback_data="bv_preset_preset_1")],
-        [InlineKeyboardButton("🔥 Preset 2 (Ficha Obrigatória)", callback_data="bv_preset_preset_2")],
-        [InlineKeyboardButton("🎉 Preset 3 (Casa Nova)", callback_data="bv_preset_preset_3")],
-        [InlineKeyboardButton("💎 Preset 4 (Novo Membro)", callback_data="bv_preset_preset_4")],
-        [InlineKeyboardButton("⭐ Preset 5 (Alerta da Galera)", callback_data="bv_preset_preset_5")],
-        [InlineKeyboardButton("🚀 Preset 6 (Passaporte Carimbado)", callback_data="bv_preset_preset_6")],
+        [InlineKeyboardButton("📄 Legenda 1 (Ver Pré-visualização)", callback_data="bv_legenda_legenda_1")],
+        [InlineKeyboardButton("📄 Legenda 2 (Ver Pré-visualização)", callback_data="bv_legenda_legenda_2")],
+        [InlineKeyboardButton("📄 Legenda 3 (Ver Pré-visualização)", callback_data="bv_legenda_legenda_3")],
+        [InlineKeyboardButton("📄 Legenda 4 (Ver Pré-visualização)", callback_data="bv_legenda_legenda_4")],
+        [InlineKeyboardButton("📄 Legenda 5 (Ver Pré-visualização)", callback_data="bv_legenda_legenda_5")],
+        [InlineKeyboardButton("📄 Legenda 6 (Ver Pré-visualização)", callback_data="bv_legenda_legenda_6")],
         [InlineKeyboardButton("⬅️ Voltar ao Painel", callback_data="bv_cancelar")]
     ])
     
     msg = (
-        "✨ **Escolha uma Mensagem Pronta (Template):**\n\n"
-        "Selecione abaixo uma das opções criadas para definir automaticamente o texto de boas-vindas do seu grupo:"
+        "✨ **Escolha uma Mensagem Pronta:**\n\n"
+        "Clique em uma das opções abaixo para **ver a pré-visualização completa** do texto antes de definir no grupo:"
     )
     await query.message.edit_text(msg, reply_markup=teclado, parse_mode="Markdown")
     await query.answer()
 
-async def cb_aplicar_preset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cb_aplicar_legenda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await verificar_permissao_callback(update, context):
         return
     
     query = update.callback_query
-    data = query.data # Ex: bv_preset_preset_1
-    preset_key = data.replace("bv_preset_", "")
+    data = query.data # Ex: bv_legenda_legenda_1
     
-    if preset_key in MENSAGENS_PRINT_PRESETS:
-        texto_escolhido = MENSAGENS_PRINT_PRESETS[preset_key]
-        chat_id = update.effective_chat.id
-        salvar_no_mongo(chat_id, "texto", texto_escolhido)
-        await enviar_painel_principal_bv(context, chat_id, query=query, aviso_extra="Mensagem pronta aplicada com sucesso!")
-    else:
-        await query.answer("Preset não encontrado!", show_alert=True)
+    # Se clicar para ver a pré-visualização ou aplicar diretamente
+    if data.startswith("bv_legenda_"):
+        legenda_key = data.replace("bv_legenda_", "")
+        
+        if legenda_key in MENSAGENS_PRontas:
+            texto_preview = MENSAGENS_PRontas[legenda_key]
+            
+            # Teclado para confirmar a aplicação da mensagem vista
+            teclado_confirmacao = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Salvar e Aplicar esta Legenda", callback_data=f"bv_salvar_{legenda_key}")],
+                [InlineKeyboardButton("⬅️ Escolher Outra Legenda", callback_data="bv_mensagens_prontas")]
+            ])
+            
+            msg_completa = (
+                f"👀 **Pré-visualização da Legenda:**\n\n"
+                f"----------------------------------------\n"
+                f"{texto_preview}\n"
+                f"----------------------------------------\n\n"
+                f"Deseja definir esta mensagem como padrão de boas-vindas?"
+            )
+            await query.message.edit_text(msg_completa, reply_markup=teclado_confirmacao, parse_mode="Markdown")
+            await query.answer()
+            return
+
+    # Se confirmou salvar
+    if data.startswith("bv_salvar_"):
+        legenda_key = data.replace("bv_salvar_", "")
+        if legenda_key in MENSAGENS_PRontas:
+            texto_escolhido = MENSAGENS_PRontas[legenda_key]
+            chat_id = update.effective_chat.id
+            salvar_no_mongo(chat_id, "texto", texto_escolhido)
+            await enviar_painel_principal_bv(context, chat_id, query=query, aviso_extra="Mensagem pronta aplicada com sucesso!")
+            return
+
+    await query.answer("Opção não encontrada!", show_alert=True)
+
+# Adicionamos o handler para a confirmação de salvamento das legendas
+app_extra_handler = CallbackQueryHandler(cb_aplicar_legenda, pattern=r"^bv_salvar_")
 
 async def cb_callback_botoes_especiais(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -684,7 +712,7 @@ async def callback_ver_botoes_bv(update: Update, context: ContextTypes.DEFAULT_T
         await update.callback_query.message.reply_text("🔲 **Botões atuais:**", reply_markup=botoes)
         await update.callback_query.answer()
     else:
-        await update.callback_query.answer("Nenhuma botão configurado!", show_alert=True)
+        await update.callback_query.answer("Nenhum botão configurado!", show_alert=True)
 
 async def callback_remover_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
