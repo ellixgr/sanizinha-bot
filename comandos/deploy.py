@@ -1,25 +1,36 @@
 import os
 import aiohttp
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, ContextTypes
 
-async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
-    # Puxa o ID do dono das variáveis de ambiente de forma segura
     dono_id_env = os.environ.get("DONO_ID")
+    
     if not dono_id_env or user_id != int(dono_id_env):
-        await update.message.reply_text("⚠️ Você não tem permissão para usar este comando.")
+        if update.callback_query:
+            await update.callback_query.answer("⚠️ Apenas o dono do bot pode executar esta ação!", show_alert=True)
+        else:
+            await update.message.reply_text("⚠️ Você não tem permissão para usar este comando.")
         return
 
     api_key = os.environ.get("RENDER_API_KEY")
     service_id = os.environ.get("RENDER_SERVICE_ID")
 
     if not api_key or not service_id:
-        await update.message.reply_text("⚠️ As variáveis RENDER_API_KEY ou RENDER_SERVICE_ID não foram configuradas no Render!")
+        texto_erro = "⚠️ As variáveis RENDER_API_KEY ou RENDER_SERVICE_ID não foram configuradas no Render!"
+        if update.callback_query:
+            await update.callback_query.answer(texto_erro, show_alert=True)
+        else:
+            await update.message.reply_text(texto_erro)
         return
 
-    msg = await update.message.reply_text("🔄 Solicitando Clear Build Cache & Deploy no Render...")
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer("🔄 Solicitando Clear Build Cache & Deploy...")
+        msg = query.message
+    else:
+        msg = await update.message.reply_text("🔄 Solicitando Clear Build Cache & Deploy no Render...")
 
     url = f"https://api.render.com/v1/services/{service_id}/deploys"
     
@@ -39,12 +50,27 @@ async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if response.status in [200, 201]:
                     data = await response.json()
                     deploy_id = data.get("deploy", {}).get("id", "Desconhecido")
-                    await msg.edit_text(f"✅ **Clear Build Cache & Deploy disparado com sucesso!**\n\nID do Deploy: `{deploy_id}`\nO Render já está compilando do zero.", parse_mode="Markdown")
+                    texto_sucesso = f"✅ **Clear Build Cache & Deploy disparado com sucesso!**\n\nID do Deploy: `{deploy_id}`\nO Render já está compilando do zero."
+                    if update.callback_query:
+                        await msg.edit_text(texto_sucesso, parse_mode="Markdown")
+                    else:
+                        await msg.edit_text(texto_sucesso, parse_mode="Markdown")
                 else:
                     erro_texto = await response.text()
-                    await msg.edit_text(f"❌ Erro ao comunicar com a API do Render:\n`{erro_texto}`", parse_mode="Markdown")
+                    texto_falha = f"❌ Erro ao comunicar com a API do Render:\n`{erro_texto}`"
+                    if update.callback_query:
+                        await msg.edit_text(texto_falha, parse_mode="Markdown")
+                    else:
+                        await msg.edit_text(texto_falha, parse_mode="Markdown")
     except Exception as e:
-        await msg.edit_text(f"❌ Erro interno ao executar o comando: {e}")
+        texto_ex = f"❌ Erro interno ao executar o comando: {e}"
+        if update.callback_query:
+            await msg.edit_text(texto_ex)
+        else:
+            await msg.edit_text(texto_ex)
+
+async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await executar_clear_deploy(update, context)
 
 def registrar_deploy(app):
     app.add_handler(CommandHandler("cleardeploy", cmd_clear_deploy))
