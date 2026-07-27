@@ -1,7 +1,7 @@
 import os
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
@@ -19,6 +19,9 @@ MIDIAS_BV = {}
 BOTOES_BV = {}
 STATUS_BV = {}  
 ESTADOS_FLUXO = {} 
+
+# Fuso horário do Brasil (UTC-3)
+FUSO_BR = timezone(timedelta(hours=-3))
 
 def registrar_comandos_bv(app: Application):
     registrar_captura_fluxo(app)
@@ -141,7 +144,7 @@ async def cb_cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await callback_cancelar_bv(update, context)
 
-async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message=None, query=None, aviso_extra: str = None):
+async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message=None, query=None, aviso_extra: str = None, edit_message_id=None):
     tem_texto = chat_id in TEXTOS_BV and bool(TEXTOS_BV[chat_id])
     tem_midia = chat_id in MIDIAS_BV and bool(MIDIAS_BV[chat_id])
     tem_botoes = chat_id in BOTOES_BV and bool(BOTOES_BV[chat_id])
@@ -179,6 +182,19 @@ async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id
         [InlineKeyboardButton("👀 Visualização completa", callback_data="bv_ver_completa")],
         [InlineKeyboardButton("⬅️ Voltar ao Painel", callback_data="voltar_principal_grupo")]
     ])
+
+    if edit_message_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=edit_message_id,
+                text=texto_painel,
+                reply_markup=teclado,
+                parse_mode="Markdown"
+            )
+            return
+        except Exception:
+            pass
 
     if query and query.message:
         try:
@@ -222,7 +238,7 @@ def registrar_captura_fluxo(app: Application):
         if estado == "aguardando_texto_bv":
             texto = message.text or message.caption or ""
             TEXTOS_BV[chat.id] = texto
-            await enviar_painel_principal_bv(context, chat.id, message=message, aviso_extra="Texto configurado com sucesso!")
+            await enviar_painel_principal_bv(context, chat.id, aviso_extra="Texto configurado com sucesso!", edit_message_id=msg_id_painel)
 
         elif estado == "aguardando_midia_bv":
             tipo = None
@@ -245,7 +261,7 @@ def registrar_captura_fluxo(app: Application):
             if leg and chat.id not in TEXTOS_BV:
                 TEXTOS_BV[chat.id] = leg
 
-            await enviar_painel_principal_bv(context, chat.id, message=message, aviso_extra="Mídia configurada com sucesso!")
+            await enviar_painel_principal_bv(context, chat.id, aviso_extra="Mídia configurada com sucesso!", edit_message_id=msg_id_painel)
 
         elif estado == "aguardando_botoes_bv":
             if not message.text:
@@ -290,7 +306,7 @@ def registrar_captura_fluxo(app: Application):
 
             if botoes_teclado:
                 BOTOES_BV[chat.id] = InlineKeyboardMarkup(botoes_teclado)
-                await enviar_painel_principal_bv(context, chat.id, message=message, aviso_extra="Botões configurados com sucesso!")
+                await enviar_painel_principal_bv(context, chat.id, aviso_extra="Botões configurados com sucesso!", edit_message_id=msg_id_painel)
 
     app.add_handler(MessageHandler(~filters.COMMAND & (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Sticker.ALL), capturar_fluxo_admin), group=1)
 
@@ -313,7 +329,7 @@ async def montar_texto_formatado(context: ContextTypes.DEFAULT_TYPE, chat_id: in
     except Exception:
         chat_title = "Grupo"
 
-    agora = datetime.now()
+    agora = datetime.now(FUSO_BR)
     dias_semana = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
     texto_base = TEXTOS_BV.get(chat_id, "Olá {MENTION}, seja bem-vindo(a) ao {GROUPNAME}!")
 
