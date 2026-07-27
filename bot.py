@@ -22,11 +22,11 @@ from telegram.ext import (
     filters
 )
 
-# 1. PRIMEIRO você inicializa o app do bot com o token
+# 1. Inicialização do app do bot com o token
 token = os.environ.get("TELEGRAM_TOKEN")
 app = ApplicationBuilder().token(token).build()
 
-# 2. DEPOIS você chama os setups usando o 'app' já criado
+# 2. Chamadas dos setups dos módulos externos
 from Comandos.bemvindo import registrar_comandos_bv
 registrar_comandos_bv(app)
 
@@ -800,11 +800,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "cmd_adm":
         chat_id = query.message.chat.id
-        teclado_adm = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛡️ Central de Proteções", callback_data=f"painel_prot_{chat_id}")],
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="voltar_principal")]
-        ])
-        await query.message.edit_text("🛡️ **Comandos de Administradores:**\n• `/ban`\n• `/mutar`\n• `/protecao`", reply_markup=teclado_adm, parse_mode="Markdown")
+        # Integrado o botão de boas-vindas acionando a função importada do bemvindo.py
+        from Comandos.bemvindo import enviar_painel_principal_bv
+        await enviar_painel_principal_bv(context, chat_id, query=query)
         await query.answer()
         return
 
@@ -949,7 +947,7 @@ def main():
     
     app.add_handler(CallbackQueryHandler(button_handler))    
     
-    print("🤖 Bot unificado rodando perfeitamente!")
+    print("🤖 Bot unificado rodando perfeitamente com o módulo de boas-vindas integrado!")
     app.run_polling(drop_pending_updates=False)
 
 if __name__ == "__main__":
