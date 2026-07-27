@@ -1,8 +1,16 @@
 import os
+import logging
 import threading
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes
+
+# Configuração de Logs para aparecer no console do Render
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 MONGO_URI = os.environ.get("MONGO_URI")
@@ -42,15 +50,24 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # No privado, apenas o dono pode mexer em painéis restritos
     return False
 
-# Interceptador universal para computar mensagens e mídias das estatísticas
+# Interceptador universal para computar estatísticas e registrar logs de mensagens
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    if not chat or not user or chat.type == "private":
+    if not chat or not user:
         return
 
     message = update.message
     if not message:
+        return
+
+    # Log de mensagens no console do Render (Privado ou Grupo)
+    if chat.type == "private":
+        logger.info(f"[MENSAGEM PRIVADA] De: {user.first_name} (ID: {user.id}) | Conteúdo: {message.text or '[Mídia/Outro]'}")
+    elif chat.type in ["group", "supergroup"]:
+        logger.info(f"[MENSAGEM EM GRUPO] Grupo: {chat.title} (ID: {chat.id}) | De: {user.first_name} (ID: {user.id})")
+
+    if chat.type == "private":
         return
 
     tipo_incremento = {"total_mensagens": 1}
@@ -167,7 +184,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await executar_clear_deploy(update, context)
 
     elif query.data == "config_bemvindo":
-        # Trava para apenas administradores ou dono
         if not await verificar_se_e_adm(update, context):
             await query.answer("⚠️ Apenas administradores do grupo podem configurar o Bem-Vindo!", show_alert=True)
             return
@@ -180,7 +196,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(f"⚠️ Erro ao abrir o painel de boas-vindas: {e}")
 
     elif query.data == "menu_protecoes":
-        # Trava para apenas administradores ou dono
         if not await verificar_se_e_adm(update, context):
             await query.answer("⚠️ Apenas administradores do grupo podem configurar as Proteções!", show_alert=True)
             return
@@ -230,7 +245,7 @@ def main():
     
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # Registra o interceptador de estatísticas nas mensagens de grupo
+    # Registra o interceptador universal para capturar mensagens e gerar logs no console
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=-1)
 
     # Importa e registra todos os módulos da pasta comandos/
@@ -248,7 +263,6 @@ def main():
     from comandos.deploy import registrar_deploy
     from comandos.rank import registrar_rank
     
-
     registrar_promover(app)
     registrar_rank(app)
     registrar_marcar(app)
@@ -266,7 +280,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("🤖 Bot rodando com sucesso e módulos separados!")
+    logger.info("🤖 Bot rodando com sucesso e módulos separados!")
     app.run_polling(drop_pending_updates=False)
 
 if __name__ == "__main__":
