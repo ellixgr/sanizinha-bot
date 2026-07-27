@@ -6,9 +6,11 @@ from pymongo import MongoClient
 MONGO_URI = os.environ.get("MONGO_URI")
 DONO_ID = os.environ.get("DONO_ID")
 
-def escapar_markdown(texto: str) -> str:
-    """Escapa caracteres que quebram o Markdown padrão do Telegram"""
-    caracteres = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+def escapar_markdown_simples(texto: str) -> str:
+    """Escapa apenas caracteres perigosos comuns mantendo nomes seguros"""
+    if not texto:
+        return "Membro"
+    caracteres = ['*', '_', '`', '[']
     for c in caracteres:
         texto = texto.replace(c, f"\\{c}")
     return texto
@@ -27,8 +29,6 @@ async def gerar_texto_rank(chat, context):
 
     if not top_usuarios:
         return None
-
-    nome_grupo = escapar_markdown(chat.title)
     
     texto_rank = f"🏆 𝐑𝐀𝐍𝐊 𝐀𝐓𝐈𝐕𝐎𝐒 𝐃𝐎 𝐂𝐇𝐀𝐓\n               ┑(￣▽￣)┍\n\n"
 
@@ -43,9 +43,11 @@ async def gerar_texto_rank(chat, context):
             tg_user = membro_info.user
             
             if tg_user.username:
+                # Username com @ não precisa escapar link
                 mencao_usuario = f"@{tg_user.username}"
             elif tg_user.first_name:
-                nome_seguro = escapar_markdown(tg_user.first_name)
+                nome_seguro = escapar_markdown_simples(tg_user.first_name)
+                # Formato padrão seguro do Telegram para menção por ID sem quebrar entidades
                 mencao_usuario = f"[{nome_seguro}](tg://user?id={user_id})"
         except Exception:
             pass
@@ -72,7 +74,7 @@ async def gerar_texto_rank(chat, context):
         else:
             pos_icon = "🔟 10º LUGAR"
 
-        # Bloco estilizado igual ao seu modelo
+        # Bloco estilizado
         texto_rank += (
             f"{pos_icon}\n"
             f"├ 👤 Usuario: {mencao_usuario}\n"
@@ -157,7 +159,6 @@ async def callback_atualizar_rank(update: Update, context: ContextTypes.DEFAULT_
             await query.message.edit_text(texto_rank, reply_markup=teclado, parse_mode="Markdown")
             await query.answer("✅ Ranking atualizado com sucesso!")
         except Exception as telegram_error:
-            # Se o erro for porque o conteúdo é exatamente o mesmo, avisa de forma limpa
             if "Message is not modified" in str(telegram_error):
                 await query.answer("✨ O ranking já está atualizado com os dados mais recentes!", show_alert=False)
             else:
