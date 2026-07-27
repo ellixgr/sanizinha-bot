@@ -10,20 +10,16 @@ from telegram.ext import (
 
 logger = logging.getLogger("SanizinhaBot.xadrez")
 
-def setup_nome_do_jogo(app: Application):
-    app.add_handler(CommandHandler("comando_jogo", iniciar_jogo))
-    app.add_handler(CallbackQueryHandler(callback_jogo, pattern=r"^prefixo_callback_"))
+def setup_xadrez(app: Application):
+    app.add_handler(CommandHandler("xadrez", iniciar_jogo))
+    app.add_handler(CallbackQueryHandler(callback_jogo, pattern=r"^xadrez_"))
 
 async def iniciar_jogo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message:
         return
-    # Sua lógica do jogo aqui...
-    await message.reply_text("🎮 Jogo iniciado!")
+    await message.reply_text("♟️ Jogo de Xadrez iniciado!")
 
 async def callback_jogo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    # Sua lógica de botões aqui...
     await query.answer()
-def setup_xadrez(app):
-    # Insira aqui os handlers, add_handler ou comandos relacionados ao jogo da xd
