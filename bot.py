@@ -266,7 +266,9 @@ def main():
     from comandos.play import setup_play
     from comandos.deploy import registrar_deploy
     from comandos.rank import registrar_rank
-    
+    from comandos.figurinha import registrar_figurinha
+
+    registrar_figurinha(app)
     registrar_promover(app)
     registrar_rank(app)
     registrar_marcar(app)
