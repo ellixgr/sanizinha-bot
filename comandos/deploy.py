@@ -6,8 +6,9 @@ from telegram.ext import CommandHandler, ContextTypes
 async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    MEU_USER_ID = 7711945457  
-    if user_id != MEU_USER_ID:
+    # Puxa o ID do dono das variáveis de ambiente de forma segura
+    dono_id_env = os.environ.get("DONO_ID")
+    if not dono_id_env or user_id != int(dono_id_env):
         await update.message.reply_text("⚠️ Você não tem permissão para usar este comando.")
         return
 
