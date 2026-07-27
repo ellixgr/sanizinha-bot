@@ -50,7 +50,7 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # No privado, apenas o dono pode mexer em painéis restritos
     return False
 
-# Interceptador universal para computar estatísticas e registrar logs de mensagens
+# Interceptador universal para computar estatísticas e registrar logs de mensagens formatados
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -61,11 +61,25 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
     if not message:
         return
 
-    # Log de mensagens no console do Render (Privado ou Grupo)
+    username_str = f"@{user.username}" if user.username else user.first_name
+
+    # Log formatado e bonitinho no console do Render
     if chat.type == "private":
-        logger.info(f"[MENSAGEM PRIVADA] De: {user.first_name} (ID: {user.id}) | Conteúdo: {message.text or '[Mídia/Outro]'}")
+        logger.info(
+            f"\n__________________\n"
+            f"Tipo : Privado\n"
+            f"Usuário : {username_str} (ID: {user.id})\n"
+            f"Msg : {message.text or '[Mídia/Outro]'}\n"
+            f"__________________"
+        )
     elif chat.type in ["group", "supergroup"]:
-        logger.info(f"[MENSAGEM EM GRUPO] Grupo: {chat.title} (ID: {chat.id}) | De: {user.first_name} (ID: {user.id})")
+        logger.info(
+            f"\n__________________\n"
+            f"Grupo : {chat.title} (ID: {chat.id})\n"
+            f"Usuário : {username_str} (ID: {user.id})\n"
+            f"Msg : {message.text or '[Mídia/Outro]'}\n"
+            f"__________________"
+        )
 
     if chat.type == "private":
         return
