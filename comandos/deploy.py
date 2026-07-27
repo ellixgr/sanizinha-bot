@@ -7,10 +7,13 @@ from telegram.ext import CommandHandler, ContextTypes
 
 ARQUIVO_ESTADO_DEPLOY = "deploy_status.json"
 
-async def checar_deploy_pendente(app):
-    """Função que roda assim que o bot liga para avisar que o deploy terminou"""
+async def checar_deploy_pendente_ao_iniciar(bot):
+    """Função chamada logo após o bot ligar para avisar que o deploy terminou"""
     if not os.path.exists(ARQUIVO_ESTADO_DEPLOY):
         return
+
+    # Aguarda 3 segundos para garantir que o bot está totalmente conectado
+    await asyncio.sleep(3)
 
     try:
         with open(ARQUIVO_ESTADO_DEPLOY, "r", encoding="utf-8") as f:
@@ -21,7 +24,7 @@ async def checar_deploy_pendente(app):
         deploy_id = dados.get("deploy_id")
 
         if chat_id and message_id:
-            await app.bot.edit_message_text(
+            await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
                 text=f"✅ **Deploy Concluído com Sucesso!**\n\nID: `{deploy_id}`\nO bot foi reiniciado e já está online.",
@@ -30,7 +33,6 @@ async def checar_deploy_pendente(app):
     except Exception:
         pass
     finally:
-        # Apaga o arquivo para não ficar avisando toda vez que reiniciar
         if os.path.exists(ARQUIVO_ESTADO_DEPLOY):
             os.remove(ARQUIVO_ESTADO_DEPLOY)
 
@@ -41,10 +43,9 @@ async def monitorar_status_deploy(bot, chat_id, message_id, api_key, service_id,
         "Authorization": f"Bearer {api_key}"
     }
 
-    # Aguarda alguns segundos para o Render processar o início
     await asyncio.sleep(5)
 
-    tentativas_max = 60  # Cerca de 10 minutos limitados
+    tentativas_max = 60
     tentativa = 0
     ja_avisou_building = False
 
@@ -54,9 +55,8 @@ async def monitorar_status_deploy(bot, chat_id, message_id, api_key, service_id,
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        # A API do Render pode retornar o objeto direto ou dentro de 'deploy'
                         deploy_info = data.get("deploy", data)
-                        status = deploy_info.get("status") # ex: building, live, build_failed
+                        status = deploy_info.get("status")
 
                         if status == "building" and not ja_avisou_building:
                             ja_avisou_building = True
@@ -71,7 +71,6 @@ async def monitorar_status_deploy(bot, chat_id, message_id, api_key, service_id,
                                 pass
 
                         elif status == "live":
-                            # Salva os dados para o bot avisar assim que religar
                             with open(ARQUIVO_ESTADO_DEPLOY, "w", encoding="utf-8") as f:
                                 json.dump({"chat_id": chat_id, "message_id": message_id, "deploy_id": deploy_id}, f)
                             break
@@ -139,8 +138,6 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
             async with session.post(url, json=payload, headers=headers) as response:
                 if response.status in [200, 201]:
                     data = await response.json()
-                    
-                    # Correção principal: O Render retorna o ID direto no objeto raiz ou dentro de 'deploy'
                     deploy_data = data.get("deploy", data)
                     deploy_id = deploy_data.get("id") or data.get("id", "Desconhecido")
                     
@@ -151,7 +148,6 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
                     else:
                         msg = await msg.edit_text(texto_inicial, parse_mode="Markdown")
 
-                    # Dispara a verificação em segundo plano
                     context.application.create_task(
                         monitorar_status_deploy(
                             context.bot,
@@ -176,5 +172,5 @@ async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def registrar_deploy(app):
     app.add_handler(CommandHandler("cleardeploy", cmd_clear_deploy))
     
-    # Adiciona a verificação automática logo que o bot inicializa
-    app.job_queue.run_once(lambda ctx: checar_deploy_pendente(app), when=2)
+    # Dispara a verificação logo que o bot inicializa de forma segura via create_task
+    app.create_task(checar_deploy_pendente_ao_iniciar(app.bot))
