@@ -94,7 +94,7 @@ bloqueio_temporario = {}
 pagamentos_notificados = set() 
 FLOOD_CONTROL = defaultdict(list)
 USER_MSG_CACHE = defaultdict(list)
-ADVERTENCIAS_LINK = defaultdict(dict)  # Armazena avisos de link por chat e usuário
+ADVERTENCIAS_LINK = defaultdict(dict)  
 PERMISSOES_SELECIONADAS = {}
 
 OPCOES_PERMISSOES = {
@@ -180,6 +180,20 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
     if user_id == DONO_ID:
         return
 
+    # Anti-flood estrito de comandos (2 segundos de pausa entre cada comando)
+    if update.message and update.message.text and update.message.text.startswith('/'):
+        if user_id in ultimo_envio:
+            tempo_decorrido = agora - ultimo_envio[user_id]
+            if tempo_decorrido < 2.0:
+                try:
+                    await update.message.reply_text(
+                        f"⚠️ **Aguarde {2.0 - tempo_decorrido:.1f}s** para enviar outro comando.",
+                        parse_mode="Markdown"
+                    )
+                except Exception:
+                    pass
+                raise ApplicationHandlerStop
+
     # Se for em grupo, aplicar proteções de chat
     if chat and chat.type in ["group", "supergroup"]:
         message = update.message
@@ -197,7 +211,6 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
                     try:
                         await message.delete()
                         
-                        # Sistema de avisos para link/encaminhamento
                         if chat.id not in ADVERTENCIAS_LINK:
                             ADVERTENCIAS_LINK[chat.id] = {}
                         
@@ -224,7 +237,7 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
                         pass
                     raise ApplicationHandlerStop
 
-                # 3. Anti Mídias Específicas (Imagem, Figurinha, Vídeo, Arquivo, Áudio, Gif)
+                # 3. Anti Mídias Específicas
                 if cfg.get("antiimagem", False) and message.photo:
                     try:
                         await message.delete()
@@ -272,12 +285,6 @@ async def interceptador_universal(update: Update, context: ContextTypes.DEFAULT_
                     except Exception:
                         pass
                     raise ApplicationHandlerStop
-
-    if update.message and update.message.text and update.message.text.startswith('/'):
-        cmd = update.message.text.split()[0].split('@')[0].lower()
-        allowed_public = ['/start', '/suporte', '/suport', '/ping', '/id', '/perfil', '/jogos', '/figu', '/sticker']
-        if cmd not in allowed_public and not await is_user_admin(update, context):
-            pass
 
     if user_id in bloqueio_temporario:
         if bloqueio_temporario[user_id] - agora > 0:
@@ -409,7 +416,7 @@ async def comandos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📜 **LISTA DE COMANDOS DO BOT**\n\n"
         "• `/start` - Inicia o bot\n• `/id` - Mostra IDs\n• `/protecao` - Painel de segurança\n"
         "• `/ban` - Bane usuário\n• `/mutar` / `/desmutar` - Moderação\n"
-        "• `/figu` - Cria figurinhas\n• `/ping` - Latência\n• `/jogos` - Central de Jogos"
+        "• `/figu` - Cria figurinhas\n• `/ping` - Latência e Status do Bot\n• `/jogos` - Central de Jogos"
     )
     await update.message.reply_text(texto, parse_mode="Markdown")
 
@@ -452,19 +459,16 @@ async def ping_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sistema = f"{platform.system()} ({platform.release()})"
     
     cpu_uso = 0.0
-    mem_total_gb = 0.0
-    mem_uso_gb = 0.0
+    mem_uso_mb = 0.0
     
     if psutil:
         try:
-            cpu_uso = psutil.cpu_percent(interval=0.1)
-            mem = psutil.virtual_memory()
-            mem_total_gb = mem.total / (1024 ** 3)
-            mem_uso_gb = mem.used / (1024 ** 3)
+            processo = psutil.Process(os.getpid())
+            cpu_uso = processo.cpu_percent(interval=0.1)
+            mem_uso_mb = processo.memory_info().rss / (1024 ** 2)
         except Exception:
             pass
 
-    # Status CPU emoji conforme solicitado (< 50% 🟢, 50-85% 🟡, > 85% 🔴)
     if cpu_uso < 50:
         cpu_emoji = "🟢"
     elif cpu_uso <= 85:
@@ -473,11 +477,12 @@ async def ping_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cpu_emoji = "🔴"
 
     resposta = (
-        f"🏓 **PONG & STATUS DO SISTEMA**\n\n"
+        f"🏓 **STATUS DO BOT & HOSPEDAGEM (RENDER)**\n\n"
         f"⚡ **Velocidade de Resposta:** `{latencia}ms`\n"
         f"⏳ **Tempo Online:** `{horas}h {minutos}m`\n"
-        f"💻 **Sistema/Hospedagem:** `{sistema}` (Python / Render)\n"
-        f"💾 **Armazenamento RAM:** `{mem_uso_gb:.2f} GB` / `{mem_total_gb:.2f} GB`\n"
+        f"💻 **Plataforma:** `{sistema} (Render Free Tier)`\n"
+        f"📦 **Plano do Bot:** `Free (512 MB RAM / 0.1 CPU)`\n"
+        f"💾 **Memória RAM Atual:** `{mem_uso_mb:.2f} MB` (de 512 MB)\n"
         f"🖥️ **Uso de CPU:** `{cpu_uso:.1f}%` {cpu_emoji}"
     )
     await msg.edit_text(resposta, parse_mode="Markdown")
@@ -590,11 +595,9 @@ async def perfil_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     
-    # Se respondeu a alguém, puxa o perfil do alvo
     if update.message.reply_to_message and update.message.reply_to_message.from_user:
         user = update.message.reply_to_message.from_user
 
-    # Buscar total de mensagens enviadas no grupo
     total_msgs = 0
     if chat and chat.type in ["group", "supergroup"]:
         try:
@@ -604,7 +607,6 @@ async def perfil_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    # Buscar bio e foto de perfil via Telegram API
     bio = "Não informada"
     try:
         full_user = await context.bot.get_chat(user.id)
@@ -622,7 +624,6 @@ async def perfil_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"╰━━━━━━━━━━━━━━━━━━━━━╯"
     )
 
-    # Tentar puxar a foto de perfil
     try:
         photos = await context.bot.get_user_profile_photos(user.id, limit=1)
         if photos and photos.total_count > 0:
@@ -632,12 +633,13 @@ async def perfil_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-    # Se não tiver foto ou ocorrer erro, manda apenas o texto
     await update.message.reply_text(texto_perfil, parse_mode="Markdown")
 
 async def jogos_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     teclado = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎮 Jogo da Velha", callback_data="jogar_velha"), InlineKeyboardButton("🎯 Forca", callback_data="jogar_forca")]
+        [InlineKeyboardButton("🎮 Jogo da Velha", callback_data="jogar_velha"), InlineKeyboardButton("🎯 Forca", callback_data="jogar_forca")],
+        [InlineKeyboardButton("⭕ Dama", callback_data="jogar_dama"), InlineKeyboardButton("🧠 Memória", callback_data="jogar_memoria")],
+        [InlineKeyboardButton("♟️ Xadrez", callback_data="jogar_xadrez")]
     ])
     await update.message.reply_text("🕹️ **Central de Jogos**\nEscolha uma opção:", reply_markup=teclado)
 
@@ -670,8 +672,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id_atual = query.message.chat.id
 
     if data.startswith("toggle_"):
-        # Validar se quem clicou é administrador
-        if chat_id_atual and chat_id_atual < 0: # É um grupo
+        if chat_id_atual and chat_id_atual < 0: 
             try:
                 member = await context.bot.get_chat_member(chat_id_atual, user_id)
                 if member.status not in ["creator", "administrator"] and user_id != DONO_ID:
@@ -730,8 +731,89 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "cmd_membros":
-        await query.message.edit_text("📜 **Comandos disponíveis para membros:**\n• `/ping`\n• `/perfil`\n• `/figu`\n• `/jogos`", parse_mode="Markdown")
+        teclado_membros = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🏓 Ping", callback_data="menu_ping"), InlineKeyboardButton("🆔 ID", callback_data="menu_id")],
+            [InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil"), InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos")]
+        ])
+        await query.message.edit_text("📜 **Menu de Membros**\nEscolha uma opção abaixo:", reply_markup=teclado_membros, parse_mode="Markdown")
         await query.answer()
+        return
+
+    if data == "menu_ping":
+        await query.answer()
+        inicio = time.time()
+        latencia = int((time.time() - inicio) * 1000)
+        uptime_segundos = int(time.time() - TEMPO_INICIAL)
+        horas = uptime_segundos // 3600
+        minutos = (uptime_segundos % 3600) // 60
+        
+        cpu_uso = 0.0
+        mem_uso_mb = 0.0
+        if psutil:
+            try:
+                processo = psutil.Process(os.getpid())
+                cpu_uso = processo.cpu_percent(interval=0.1)
+                mem_uso_mb = processo.memory_info().rss / (1024 ** 2)
+            except Exception:
+                pass
+                
+        cpu_emoji = "🟢" if cpu_uso < 50 else ("🟡" if cpu_uso <= 85 else "🔴")
+        texto_ping = (
+            f"🏓 **STATUS DO BOT & HOSPEDAGEM (RENDER)**\n\n"
+            f"⚡ **Latência:** `{latencia}ms`\n"
+            f"⏳ **Tempo Online:** `{horas}h {minutos}m`\n"
+            f"📦 **Plano:** `Free (512 MB RAM)`\n"
+            f"💾 **RAM Atual:** `{mem_uso_mb:.2f} MB`\n"
+            f"🖥️ **CPU:** `{cpu_uso:.1f}%` {cpu_emoji}"
+        )
+        await query.message.reply_text(texto_ping, parse_mode="Markdown")
+        return
+
+    if data == "menu_id":
+        await query.answer()
+        user = query.from_user
+        chat = query.message.chat
+        await query.message.reply_text(f"🆔 **Seu ID:** `{user.id}`\n💬 **ID do Chat:** `{chat.id}`", parse_mode="Markdown")
+        return
+
+    if data == "menu_perfil":
+        await query.answer()
+        user = query.from_user
+        chat = query.message.chat
+        total_msgs = 0
+        if chat and chat.type in ["group", "supergroup"]:
+            try:
+                doc_msg = col_mensagens_usuarios.find_one({"chat_id": chat.id, "user_id": user.id})
+                if doc_msg:
+                    total_msgs = doc_msg.get("total_mensagens", 0)
+            except Exception:
+                pass
+        bio = "Não informada"
+        try:
+            full_user = await context.bot.get_chat(user.id)
+            if full_user and full_user.bio:
+                bio = full_user.bio
+        except Exception:
+            pass
+        texto_p = (
+            f"╭━×🗿 **PERFIL DO USUÁRIO** 🌹×━━╮\n"
+            f"┃ 👤 **Nome:** {user.first_name}\n"
+            f"┃ 🆔 **ID:** `{user.id}`\n"
+            f"┃ 💬 **Mensagens no Grupo:** `{total_msgs}`\n"
+            f"┃ 📝 **Bio:** {bio}\n"
+            f"╰━━━━━━━━━━━━━━━━━━━━━╯"
+        )
+        await query.message.reply_text(texto_p, parse_mode="Markdown")
+        return
+
+    if data == "menu_jogos":
+        await query.answer()
+        teclado_jogos_menu = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎮 Jogo da Velha", callback_data="jogar_velha"), InlineKeyboardButton("⭕ Dama", callback_data="jogar_dama")],
+            [InlineKeyboardButton("🧠 Memória", callback_data="jogar_memoria"), InlineKeyboardButton("♟️ Xadrez", callback_data="jogar_xadrez")],
+            [InlineKeyboardButton("🎯 Forca", callback_data="jogar_forca")]
+        ])
+        await query.message.edit_text("🕹️ **Central de Jogos**\nEscolha o jogo desejado abaixo:", reply_markup=teclado_jogos_menu, parse_mode="Markdown")
         return
 
     if data == "cmd_adm":
@@ -855,7 +937,6 @@ def main():
     
     threading.Thread(target=run_background_loop, args=(app,), daemon=True).start()
 
-    # Handlers unificados
     app.add_handler(TypeHandler(Update, interceptador_universal), group=-1)
     app.add_handler(ChatMemberHandler(verificar_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     
@@ -870,7 +951,6 @@ def main():
     app.add_handler(CommandHandler(["suport", "suporte"], suporte_cmd))
     app.add_handler(CommandHandler("addusuario", addusuario_cmd))
     
-    # Comandos de moderação e utilitários trazidos do segundo bot
     app.add_handler(CommandHandler("ban", ban_cmd))
     app.add_handler(CommandHandler("mutar", mutar_cmd))
     app.add_handler(CommandHandler("desmutar", desmutar_cmd))
