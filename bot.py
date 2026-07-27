@@ -107,7 +107,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚙️ `/protecao` - Configura as travas de segurança\n"
             "👋 Configurar Bem-Vindo abaixo:"
         )
+        # Botão de Proteções adicionado de volta aqui com o callback "menu_protecoes"
         teclado_adm = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛡️ Proteções do Grupo", callback_data="menu_protecoes")],
             [InlineKeyboardButton("👋 Configurar Bem-Vindo", callback_data="config_bemvindo")],
             [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
         ])
@@ -120,6 +122,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await enviar_painel_principal_bv(context, chat_id, query=query)
         except Exception as e:
             await query.message.reply_text(f"⚠️ Erro ao abrir o painel de boas-vindas: {e}")
+
+    elif query.data == "menu_protecoes":
+        await query.answer()
+        try:
+            from comandos.protecao import enviar_painel_protecoes
+            await enviar_painel_protecoes(update, context)
+        except Exception as e:
+            await query.message.reply_text(f"⚠️ Erro ao abrir o painel de proteções: {e}")
+
+    elif query.data.startswith("prot_"):
+        try:
+            from comandos.protecao import processar_callback_protecao
+            await processar_callback_protecao(update, context)
+        except Exception as e:
+            await query.answer(f"⚠️ Erro: {e}", show_alert=True)
 
     elif query.data == "botao_ping":
         await query.answer("Calculando ping...", show_alert=False)
@@ -135,7 +152,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         teclado_painel = InlineKeyboardMarkup([
             [InlineKeyboardButton("📜 Comandos de Membros", callback_data="menu_membros")],
             [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")],
-            [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
+            [InlineKeyboardButton("🏓 Ping du Bot", callback_data="botao_ping") if False else InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
             [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
         ])
         await query.message.edit_text(texto_ajuda, reply_markup=teclado_painel, parse_mode="Markdown")
