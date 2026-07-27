@@ -6,8 +6,7 @@ from telegram.ext import CommandHandler, ContextTypes
 async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    # Substitua pelo seu ID numérico real do Telegram para segurança
-    MEU_USER_ID = 123456789  
+    MEU_USER_ID = 7711945457  
     if user_id != MEU_USER_ID:
         await update.message.reply_text("⚠️ Você não tem permissão para usar este comando.")
         return
