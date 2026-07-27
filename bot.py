@@ -78,10 +78,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🤖 **Lista de Comandos Disponíveis:**\n\n"
             "🏓 `/ping` - Status de hardware, RAM e latência\n"
             "👤 `/perfil` - Suas estatísticas completas, bio e mídias\n"
-            "🆔 `/id` - Mostra seu ID e do chat\n\n"
+            "🆔 `/id` - Mostra seu ID e do chat\n"
+            "📥 `/play` ou `/dl` - Baixa vídeos e músicas do YouTube\n\n"
             "🛡️ *Em Grupos (Admin):*\n"
             "🔨 `/ban` - Bane o usuário respondido\n"
-            "🔇 `/mutar` - Muta o usuário respondido"
+            "🔇 `/mutar` - Muta o usuário respondido\n"
+            "⭐ `/promover` - Promove a admin\n"
+            "📉 `/rebaixar` - Rebaixa admin\n"
+            "📢 `/marcar` - Marca todos"
         )
         await query.message.edit_text(texto_ajuda, parse_mode="Markdown")
 
@@ -94,7 +98,7 @@ def main():
     # Registra o interceptador de estatísticas nas mensagens de grupo
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=-1)
 
-    # Importa e registra os comandos organizados na pasta comandos/
+    # Importa e registra todos os módulos da pasta comandos/
     from comandos.ping import registrar_ping
     from comandos.id import registrar_id
     from comandos.perfil import registrar_perfil
@@ -105,6 +109,7 @@ def main():
     from comandos.marcar import registrar_marcar
     from comandos.citar import registrar_citar
     from comandos.protecao import registrar_protecoes
+    from comandos.play import setup_play
 
     registrar_promover(app)
     registrar_marcar(app)
@@ -126,4 +131,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
