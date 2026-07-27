@@ -58,6 +58,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     teclado_painel = InlineKeyboardMarkup([
         [InlineKeyboardButton("📜 Comandos de Membros", callback_data="menu_membros")],
         [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")],
+        [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ])
 
@@ -87,7 +88,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🆔 `/id` - Mostra seu ID e do chat\n"
             "📥 `/play` ou `/dl` - Baixa vídeos e músicas do YouTube"
         )
-        await query.message.edit_text(texto_membros, parse_mode="Markdown")
+        teclado_voltar = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+        ])
+        await query.message.edit_text(texto_membros, reply_markup=teclado_voltar, parse_mode="Markdown")
         
     elif query.data == "menu_adm":
         await query.answer()
@@ -99,19 +103,35 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📉 `/rebaixar` - Rebaixa administrador\n"
             "📢 `/marcar` - Marca todos do grupo\n"
             "📌 `/citar` - Cita mídias/textos marcando todos\n"
-            "⚙️ `/protecao` - Configura as travas de segurança"
+            "⚙️ `/protecao` - Configura as travas de segurança\n"
+            "👋 Configurar Bem-Vindo via comando no grupo"
         )
-        await query.message.edit_text(texto_adm, parse_mode="Markdown")
-        
-    elif query.data == "ver_comandos":
+        teclado_adm = InlineKeyboardMarkup([
+            [InlineKeyboardButton("👋 Configurar Bem-Vindo", callback_data="config_bemvindo")],
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+        ])
+        await query.message.edit_text(texto_adm, reply_markup=teclado_adm, parse_mode="Markdown")
+
+    elif query.data == "config_bemvindo":
+        await query.answer("Para configurar o bem-vindo, use o comando dedicado no seu grupo!", show_alert=True)
+
+    elif query.data == "botao_ping":
+        await query.answer("Calculando ping...", show_alert=False)
+        # Importa a função de ping do módulo correspondente para executar diretamente pelo botão
+        from comandos.ping import ping_cmd
+        await ping_cmd(update, context)
+
+    elif query.data == "voltar_menu" or query.data == "ver_comandos":
         await query.answer()
         texto_ajuda = (
-            "🤖 **Painel de Ajuda Geral:**\n"
-            "Use os botões abaixo para navegar entre os comandos de membros e administradores."
+            "🔥 **Painel Principal:**\n"
+            "Escolha uma das categorias abaixo:"
         )
         teclado_painel = InlineKeyboardMarkup([
             [InlineKeyboardButton("📜 Comandos de Membros", callback_data="menu_membros")],
-            [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")]
+            [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")],
+            [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
+            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
         ])
         await query.message.edit_text(texto_ajuda, reply_markup=teclado_painel, parse_mode="Markdown")
 
