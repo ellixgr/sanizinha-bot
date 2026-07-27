@@ -1,3 +1,4 @@
+import os
 import time
 import platform
 try:
@@ -12,7 +13,14 @@ TEMPO_INICIAL = time.time()
 
 async def ping_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     inicio = time.time()
-    msg = await update.message.reply_text("⚡ Verificando sistema...")
+    
+    # Compatibilidade tanto para comando quanto para botão do painel
+    if update.callback_query:
+        mensagem_alvo = update.callback_query.message
+    else:
+        mensagem_alvo = update.message
+
+    msg = await mensagem_alvo.reply_text("⚡ Verificando sistema...")
     latencia = int((time.time() - inicio) * 1000)
     uptime_seg = int(time.time() - TEMPO_INICIAL)
     
