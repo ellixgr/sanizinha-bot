@@ -6,7 +6,7 @@ import os
 # Configuração do MongoDB (usando a mesma base do seu projeto)
 MONGO_URI = os.getenv("MONGO_URI", "sua_uri_do_mongodb_aqui")
 mongo_client = MongoClient(MONGO_URI)
-db = mongo_client["sanizinha_bot"]
+db = mongo_client["sanizinhabot_db"]  # Nome da db unificado com o bot.py
 col_membros = db["membros_grupo"]
 
 # 1. Salva automaticamente cada usuário que mandar mensagem no grupo
@@ -45,7 +45,7 @@ async def remover_membro_saiu_handler(update: Update, context: ContextTypes.DEFA
         "user_id": left_member.id
     })
 
-# 3. Comando /marcar que busca os usuários salvos no banco e marca
+# 3. Comando /marcar que busca os usuários salvos no banco e lista numerados
 async def marcar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -63,43 +63,43 @@ async def marcar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         return
 
-    texto_chamada = " ".join(context.args) if context.args else "Atenção todos!"
+    # Pega o texto personalizado (ex: /marcar oiiii -> texto_chamada = "oiiii")
+    # Se não mandar nada, usa "CHAMANDO TODOS OS MEMBROS 🗣️"
+    texto_chamada = " ".join(context.args) if context.args else "CHAMANDO TODOS OS MEMBROS 🗣️"
     
-    # Apaga a mensagem do comando
+    # Apaga a mensagem do comando enviada pelo admin
     try:
         await update.message.delete()
     except Exception:
         pass
 
     # Busca todos os usuários salvos deste grupo no banco de dados
-    membros_salvos = col_membros.find({"chat_id": chat.id})
+    membros_salvos = list(col_membros.find({"chat_id": chat.id}))
+
+    if not membros_salvos:
+        await chat.send_message(f"📢 **{texto_chamada}**\n\nNenhum membro registrado ainda no banco.")
+        return
     
-    mencoes = []
-    for m in membros_salvos:
+    # Monta a lista numerada (1 @usuario, 2 @usuario...)
+    linhas_mencoes = []
+    for index, m in enumerate(membros_salvos, start=1):
         username = m.get("username")
         uid = m["user_id"]
         nome = m.get("first_name", "Membro")
         
         if username:
-            mencoes.append(f"@{username}")
+            linhas_mencoes.append(f"{index} @{username}")
         else:
-            mencoes.append(f"[{nome}](tg://user?id={uid})")
+            linhas_mencoes.append(f"{index} [{nome}](tg://user?id={uid})")
 
-    if not mencoes:
-        lista_mencoes = "Nenhum membro registrado ainda no banco."
-    else:
-        lista_mencoes = " ".join(mencoes)
+    # Como o Telegram tem limite de caracteres por mensagem, dividimos em blocos se necessário ou enviamos direto
+    bloco_texto = f"📢 **{texto_chamada}**\n\n" + "\n".join(linhas_mencoes)
 
-    msg_final = (
-        f"📢 **{texto_chamada}**\n\n"
-        f"{lista_mencoes}\n\n"
-        f"_(Chamada geral convocada por {user.mention_markdown()})_"
-    )
-    
     try:
-        await chat.send_message(msg_final, parse_mode="Markdown")
+        await chat.send_message(bloco_texto, parse_mode="Markdown")
     except Exception:
-        await chat.send_message(f"📢 **{texto_chamada}**\n\n*(Muitos membros para marcar de uma vez só, lista excedeu o limite)*", parse_mode="Markdown")
+        # Se ultrapassar o limite do telegram por ter gente demais, envia fatiado ou avisa
+        await chat.send_message(f"📢 **{texto_chamada}**\n\n*(Muitos membros para marcar de uma vez só, lista excedeu o limite do Telegram)*", parse_mode="Markdown")
 
 def registrar_marcar(app):
     app.add_handler(CommandHandler(["marcar", "todos", "tagall"], marcar_cmd))
