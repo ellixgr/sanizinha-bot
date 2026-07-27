@@ -151,9 +151,7 @@ async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id
     mid_status = "✅" if tem_midia else "❌"
     bot_status = "✅" if tem_botoes else "❌"
     
-    status_texto_painel = "🟢 Ativado"
-    if not status_atual:
-        status_texto_painel = "🔴 Desativado"
+    status_texto_painel = "🟢 Ativado" if status_atual else "🔴 Desativado"
 
     cabecalho = f"✅ **{aviso_extra}**\n\n" if aviso_extra else ""
 
@@ -181,43 +179,26 @@ async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id
         [InlineKeyboardButton("⬅️ Voltar ao Painel", callback_data=f"voltar_principal_grupo_{chat_id}")]
     ])
 
-    if query:
+    if query and query.message:
         try:
-            await query.edit_message_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
+            await query.message.edit_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
+            return
         except Exception:
-            await query.message.reply_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
-    elif message:
-        await message.reply_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
+            pass
 
-def registrar_captura_fluxo(app: Application):
-    async def capturar_fluxo_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        message = update.message
-        if not message or not message.from_user:
+    if message:
+        try:
+            await message.reply_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
             return
+        except Exception:
+            pass
 
-        chat_id = message.chat.id
-        user_id = message.from_user.id
-        chave_fluxo = (chat_id, user_id)
+    if query and query.from_user:
+        try:
+            await context.bot.send_message(chat_id=chat_id, text=texto_painel, reply_markup=teclado, parse_mode="Markdown")
+        except Exception:
+            pass
 
-        if chave_fluxo not in ESTADOS_FLUXO:
-            return
-
-        if not await is_user_admin(update, chat_id, user_id, context):
-            ESTADOS_FLUXO.pop(chave_fluxo, None)
-            await message.reply_text("⚠️ Apenas administradores!")
-            return
-
-        estado_info = ESTADOS_FLUXO.pop(chave_fluxo, None)
-        if not estado_info:
-            return
-
-        estado, painel_msg_id = estado_info
-
-        if painel_msg_id:
-            try:
-                await context.bot.delete_message(chat_id, painel_msg_id)
-            except Exception:
-                pass
 
         if estado == "aguardando_texto_bv":
             texto = message.text or message.caption or ""
