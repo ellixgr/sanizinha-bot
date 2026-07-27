@@ -1,6 +1,6 @@
 import os
 import aiohttp
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
 async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -40,8 +40,9 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
         "Content-Type": "application/json"
     }
     
+    # CORRIGIDO: A API do Render exige a string "clear" em vez de true
     payload = {
-        "clearCache": "true"
+        "clearCache": "clear"
     }
 
     try:
