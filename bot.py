@@ -22,6 +22,11 @@ from telegram.ext import (
     filters
 )
 
+# 1. PRIMEIRO você inicializa o app do bot com o token
+token = os.environ.get("TELEGRAM_TOKEN")
+app = ApplicationBuilder().token(token).build()
+
+# 2. DEPOIS você chama os setups usando o 'app' já criado
 from Comandos.bemvindo import registrar_comandos_bv
 registrar_comandos_bv(app)
 
