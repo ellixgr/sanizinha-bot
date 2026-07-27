@@ -25,3 +25,5 @@ async def callback_jogo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     # Sua lógica de botões aqui...
     await query.answer()
+def setup_xadrez(app):
+    # Insira aqui os handlers, add_handler ou comandos relacionados ao jogo da xd
