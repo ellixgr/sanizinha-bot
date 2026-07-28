@@ -2,7 +2,7 @@ import os
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from flask import Flask
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 MONGO_URI = os.environ.get("MONGO_URI")
 DONO_ID = os.environ.get("DONO_ID")
+
+# Fuso horário do Brasil (UTC-3)
+FUSO_BR = timezone(timedelta(hours=-3))
 
 app_web = Flask(__name__)
 
@@ -212,7 +215,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not valido:
             return
 
-    agora = datetime.now()
+    agora = datetime.now(FUSO_BR)
     hora_atual = agora.strftime("%H:%M:%S")
     data_atual = agora.strftime("%d/%m/%Y")
 
@@ -426,7 +429,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data in ["voltar_menu", "ver_comandos", "voltar_principal_grupo"]:
         await query.answer()
         
-        agora = datetime.now()
+        agora = datetime.now(FUSO_BR)
         hora_atual = agora.strftime("%H:%M:%S")
         data_atual = agora.strftime("%d/%m/%Y")
 
