@@ -112,7 +112,7 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
             upsert=True
         )
         
-        link_privado = f"[https://t.me/](https://t.me/){context.bot.username}?start=aluguel"
+        link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
         teclado_assinar = InlineKeyboardMarkup([
             [InlineKeyboardButton("💳 Assinar Plano no Privado", url=link_privado)]
         ])
@@ -224,20 +224,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hora_atual = agora.strftime("%H:%M:%S")
     data_atual = agora.strftime("%d/%m/%Y")
 
-    # Usando bloco de código monospaced (```) para alinhar perfeitamente em qualquer tela
+    # Menu limpo sem caixa cinza e sem desalinhar
     texto_menu = (
-        "```text\n"
-        "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
-        f"✰┃👤 : {user.first_name}\n"
-        f"✰┃🆔 : {user.id}\n"
-        f"✰┃🕘 : {hora_atual}\n"
-        f"✰┃☀️ : {data_atual}\n"
-        "✰┃ 🤖 𝗕𝗢𝗧\n"
-        "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
-        "┌──────────┐\n"
-        "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
-        "└──────────┘\n"
-        "```"
+        f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+        f"✰┃👤 : `{user.first_name}`\n"
+        f"✰┃🆔 : `{user.id}`\n"
+        f"✰┃🕘 : `{hora_atual}`\n"
+        f"✰┃☀️ : `{data_atual}`\n"
+        f"✰┃ 🤖 𝗕𝗢𝗧 🏌️‍♀️\n"
+        f"✪/  🌬️ Sanizinha ®\n\n"
+        f"┌──────────┐\n"
+        f"   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
+        f"└──────────┘"
     )
 
     botoes = [
@@ -376,18 +374,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_atual = agora.strftime("%d/%m/%Y")
 
         texto_ajuda = (
-            "```text\n"
-            "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
-            f"✰┃👤 : {update.effective_user.first_name}\n"
-            f"✰┃🆔 : {update.effective_user.id}\n"
-            f"✰┃🕘 : {hora_atual}\n"
-            f"✰┃☀️ : {data_atual}\n"
-            "✰┃ 🤖 𝗕𝗢𝗧\n"
-            "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
-            "┌──────────┐\n"
-            "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
-            "└──────────┘\n"
-            "```"
+            f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+            f"✰┃👤 : `{update.effective_user.first_name}`\n"
+            f"✰┃🆔 : `{update.effective_user.id}`\n"
+            f"✰┃🕘 : `{hora_atual}`\n"
+            f"✰┃☀️ : `{data_atual}`\n"
+            f"✰┃ 🤖 𝗕𝗢𝗧 🏌️‍♀️\n"
+            f"✪/  🌬️ Sanizinha ®\n\n"
+            f"┌──────────┐\n"
+            f"   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
+            f"└──────────┘"
         )
         
         botoes_voltar = [
