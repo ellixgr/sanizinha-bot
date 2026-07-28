@@ -6,32 +6,34 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler
 
 MONGO_URI = os.environ.get("MONGO_URI")
-MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN") # Token do Mercado Pago para gerar o Pix
+MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN")
+DONO_ID = os.environ.get("DONO_ID")
 
 def get_db():
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000, tlsAllowInvalidCertificates=True)
     return client["sanizinhabot_db"]
 
-# --- PAINEL DE ALUGUEL (MENU /START OU BOTÃO) ---
+# --- PAINEL DE ALUGUEL (MENU) ---
 async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
     
-    # Salva temporariamente o tempo escolhido pelo usuário (padrão: 1 mês)
+    # Define 1 mês e R$ 10,00 iniciais
     context.user_data[f"aluguel_meses_{user_id}"] = 1
+    context.user_data[f"aluguel_valor_{user_id}"] = 10.00
     
     texto = (
         "🤖 **Sistema de Aluguel do Bot**\n\n"
         "Para usar o bot em seus grupos ou canais, é necessário assinar o plano de aluguel.\n"
         "• **Valor por mês:** R$ 10,00\n"
-        "• **Desconto progressivo/Proporcional:** R$ 10 por mês (Máx: 1 ano / R$ 120)\n\n"
+        "• **Máximo:** 1 ano (12 meses / R$ 120,00)\n\n"
         "Selecione a quantidade de meses desejada abaixo:"
     )
     
     teclado = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("➖", callback_data="aluguel_menos"),
-            InlineKeyboardButton("📅 1 Mês (R$ 10,00)", callback_data="aluguel_info_mes"),
+            InlineKeyboardButton("📅 1 Mês - R$ 10,00", callback_data="aluguel_info_mes"),
             InlineKeyboardButton("➕", callback_data="aluguel_mais")
         ],
         [InlineKeyboardButton("⚡ Gerar Código Pix", callback_data="aluguel_gerar_pix")],
@@ -67,21 +69,24 @@ async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_
         await query.answer("Use os botões ➕ e ➖ para alterar os meses.", show_alert=False)
         return
 
+    # Atualiza proporcionalmente: R$ 10 por mês
+    valor_total = float(meses_atuais * 10.00)
+    
     context.user_data[f"aluguel_meses_{user_id}"] = meses_atuais
-    valor_total = meses_atuais * 10.00
+    context.user_data[f"aluguel_valor_{user_id}"] = valor_total
     
     texto = (
         "🤖 **Sistema de Aluguel do Bot**\n\n"
         "Para usar o bot em seus grupos ou canais, é necessário assinar o plano de aluguel.\n"
         "• **Valor por mês:** R$ 10,00\n"
-        f"• **Total Selecionado:** {meses_atuais} Mês(es)\n\n"
+        f"• **Total Selecionado:** {meses_atuais} Mês(es) - R$ {valor_total:.2f}\n\n"
         "Selecione a quantidade de meses desejada abaixo:"
     )
     
     teclado = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("➖", callback_data="aluguel_menos"),
-            InlineKeyboardButton(f"📅 {meses_atuais} Mês(es) (R$ {valor_total:.2f})".replace('.', ','), callback_data="aluguel_info_mes"),
+            InlineKeyboardButton(f"📅 {meses_atuais} Mês(es) - R$ {valor_total:.2f}".replace('.', ','), callback_data="aluguel_info_mes"),
             InlineKeyboardButton("➕", callback_data="aluguel_mais")
         ],
         [InlineKeyboardButton("⚡ Gerar Código Pix", callback_data="aluguel_gerar_pix")],
@@ -98,8 +103,31 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     meses = context.user_data.get(f"aluguel_meses_{user_id}", 1)
-    valor = float(meses * 10.00)
+    valor = context.user_data.get(f"aluguel_valor_{user_id}", float(meses * 10.00))
     
+    # Bypass para o Dono do Bot (Pula cobrança real se for o dono)
+    if DONO_ID and str(user_id) == str(DONO_ID):
+        payment_id = 999999999
+        db = get_db()
+        db["alugueis_pendentes"].update_one(
+            {"payment_id": payment_id},
+            {"$set": {"user_id": user_id, "meses": meses, "valor": valor, "status": "pago"}},
+            upsert=True
+        )
+        texto_dono = (
+            f"👑 **Modo Dono Ativado!**\n\n"
+            f"Como você é o dono do bot, o pagamento foi simulado/liberado automaticamente.\n"
+            f"📅 **Plano:** {meses} Mês(es)\n\n"
+            f"Clique no botão abaixo para concluir e adicionar o bot:"
+        )
+        teclado_dono = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Concluir e Adicionar ao Grupo", callback_data=f"checar_pagamento_{payment_id}")],
+            [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="menu_aluguel")]
+        ])
+        await query.answer("Acesso liberado de Dono!", show_alert=False)
+        await query.message.edit_text(texto_dono, reply_markup=teclado_dono, parse_mode="Markdown")
+        return
+
     if not MP_ACCESS_TOKEN:
         await query.answer("⚠️ Token do Mercado Pago não configurado no bot!", show_alert=True)
         return
@@ -114,7 +142,7 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     payload = {
-        "transaction_amount": valor,
+        "transaction_amount": float(valor),
         "description": f"Aluguel SanizinhaBot - {meses} Mes(es)",
         "payment_method_id": "pix",
         "payer": {
@@ -152,12 +180,14 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"👤 **Comprador:** {user.first_name}\n"
                 f"📅 **Plano:** {meses} Mês(es)\n"
                 f"💰 **Valor Total:** R$ {valor:.2f}\n\n"
-                f"Copie o código Pix abaixo (Pix Copia e Cola) e pague no app do seu banco:\n\n"
+                f"Copie o código Pix abaixo ou utilize o botão rápido de cópia:\n\n"
                 f"`{qr_data}`\n\n"
-                f"🔄 *Assim que o pagamento for aprovado, clique no botão abaixo para verificar e liberar seu acesso.*"
+                f"🔄 *Após pagar no app do banco, clique no botão abaixo para verificar.*"
             )
             
+            # Botão nativo compatível com Telegram e Telegram X para copiar o código Pix
             teclado_status = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 Copiar Código Pix", copy_text=qr_data)],
                 [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{payment_id}")],
                 [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="menu_aluguel")]
             ])
@@ -174,6 +204,32 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
     user_id = update.effective_user.id
     payment_id = query.data.replace("checar_pagamento_", "")
     
+    # Se for o bypass do dono (ID 999999999)
+    if str(payment_id) == "999999999":
+        db = get_db()
+        dados_pix = db["alugueis_pendentes"].find_one({"payment_id": int(payment_id)})
+        meses = dados_pix["meses"] if dados_pix else 1
+        tempo_segundos = meses * 30 * 24 * 60 * 60
+        expira_em = time.time() + tempo_segundos
+        
+        db["licencas_aluguel"].update_one(
+            {"user_id": user_id},
+            {"$set": {"expira_em": expira_em, "meses": meses, "ativo": True}},
+            upsert=True
+        )
+        link_adicao = f"https://t.me/{context.bot.username}?startgroup=true"
+        texto_sucesso = (
+            "✅ **Acesso Liberado com Sucesso!**\n\n"
+            f"Licença ativada por {meses} mês(es).\n"
+            "Adicione o bot ao seu grupo ou canal clicando abaixo:"
+        )
+        teclado_add = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo/Canal", url=link_adicao)],
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+        ])
+        await query.message.edit_text(texto_sucesso, reply_markup=teclado_add, parse_mode="Markdown")
+        return
+
     headers = {"Authorization": f"Bearer {MP_ACCESS_TOKEN}"}
     
     try:
@@ -187,19 +243,12 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
             
             if dados_pix and dados_pix.get("status") != "pago":
                 meses = dados_pix["meses"]
-                tempo_segundos = meses * 30 * 24 * 60 * 60 # Dias aproximados em segundos
+                tempo_segundos = meses * 30 * 24 * 60 * 60
                 expira_em = time.time() + tempo_segundos
                 
-                # Salva a licença ativa para o usuário dono da compra
                 db["licencas_aluguel"].update_one(
                     {"user_id": user_id},
-                    {
-                        "$set": {
-                            "expira_em": expira_em,
-                            "meses": meses,
-                            "ativo": True
-                        }
-                    },
+                    {"$set": {"expira_em": expira_em, "meses": meses, "ativo": True}},
                     upsert=True
                 )
                 db["alugueis_pendentes"].update_one({"payment_id": int(payment_id)}, {"$set": {"status": "pago"}})
@@ -207,7 +256,7 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
             link_adicao = f"https://t.me/{context.bot.username}?startgroup=true"
             texto_sucesso = (
                 "✅ **Pagamento Aprovado com Sucesso!**\n\n"
-                f"Seu aluguel foi ativado por {dados_pix['meses'] if 'dados_pix' in locals() else '1'} mês(es).\n"
+                f"Seu aluguel foi ativado.\n"
                 "Agora você já pode adicionar o bot ao seu grupo ou canal clicando no botão abaixo!"
             )
             teclado_add = InlineKeyboardMarkup([
@@ -220,29 +269,49 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
     except Exception as e:
         await query.answer(f"⚠️ Erro ao verificar pagamento: {e}", show_alert=True)
 
-# --- CONTROLE DE ENTRADA E EXPIRAÇÃO NOS GRUPOS ---
+# --- CONTROLE DE ENTRADA E MENSAGEM PERSONALIZADA ---
 async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if chat.type not in ["group", "supergroup", "channel"]:
         return
 
-    # Identifica quem adicionou o bot (ou o criador/administradores recentes)
     try:
         user_id = update.message.from_user.id
+        comprador = update.message.from_user
     except Exception:
         return
 
     db = get_db()
     licenca = db["licencas_aluguel"].find_one({"user_id": user_id})
-    
     agora = time.time()
     
-    # Se encontrou licença e o tempo ainda está válido
+    # Verifica se a licença está ativa e dentro do prazo
     if licenca and licenca.get("ativo", False) and licenca.get("expira_em", 0) > agora:
-        # Tudo certo, o bot fica no grupo
+        tempo_restante_segundos = licenca["expira_em"] - agora
+        dias_restantes = int(tempo_restante_segundos // 86400)
+        meses_restantes = licenca.get("meses", 1)
+        
+        if dias_restantes > 30:
+            tempo_texto = f"aproximadamente {meses_restantes} mês(es)"
+        else:
+            tempo_texto = f"{dias_restantes} dia(s)"
+
+        username_mencao = f"@{comprador.username}" if comprador.username else comprador.first_name
+
+        mensagem_boas_vindas = (
+            f"Olá me chamo sanizinha 😼 sou um boteco do telegram\n"
+            f"Vou ficar aqui até {tempo_texto} no grupo\n"
+            f"O ADM {username_mencao} fez a boa e pagou a pobrezinha aqui 👉🏻👈🏻\n"
+            f"👉🏻 Qualquer coisa tô sempre on, é só chamar 🫶🏻"
+        )
+        
+        try:
+            await chat.send_message(mensagem_boas_vindas)
+        except Exception:
+            pass
         return
     
-    # Se não tiver licença ou o prazo expirou, o bot sai imediatamente!
+    # Se expirou ou não tem licença, o bot avisa e sai
     texto_aviso = (
         "⚠️ **Aluguel Expirado ou Não Encontrado!**\n\n"
         "O usuário que adicionou este bot não possui um plano de aluguel ativo ou o prazo venceu.\n"
@@ -258,17 +327,11 @@ async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_
     except Exception:
         pass
 
-# Função executada em background para checar grupos periodicamente se o prazo venceu
-async def checar_expiracoes_background(context: ContextTypes.DEFAULT_TYPE):
-    # Esta função pode ser chamada por job_queue se desejar, mas o bloqueio na entrada já protege.
-    pass
-
 def registrar_aluguel(app):
     app.add_handler(CallbackQueryHandler(painel_aluguel, pattern="^menu_aluguel$"))
     app.add_handler(CallbackQueryHandler(callback_aluguel_painel, pattern="^aluguel_(mais|menos|info_mes)$"))
     app.add_handler(CallbackQueryHandler(gerar_pix_aluguel, pattern="^aluguel_gerar_pix$"))
     app.add_handler(CallbackQueryHandler(verificar_status_pagamento, pattern="^checar_pagamento_"))
     
-    # Monitora quando o bot é adicionado a um grupo/canal
     from telegram.ext import MessageHandler, filters
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, verificar_entrada_grupo))
