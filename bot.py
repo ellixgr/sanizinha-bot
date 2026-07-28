@@ -3,14 +3,11 @@ import logging
 import threading
 import time
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from flask import Flask
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler
-
-# Importando os menus organizados
-from comandos.menus import menu_membros_handler, menu_adm_handler
+from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -22,8 +19,6 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 MONGO_URI = os.environ.get("MONGO_URI")
 DONO_ID = os.environ.get("DONO_ID")
 
-FUSO_SP = ZoneInfo("America/Sao_Paulo")
-
 app_web = Flask(__name__)
 
 @app_web.route('/')
@@ -34,9 +29,19 @@ def run_web():
     port = int(os.environ.get("PORT", 10000))
     app_web.run(host="0.0.0.0", port=port)
 
+# Conexão otimizada e reaproveitável com MongoDB para acelerar queries
+_mongo_client = None
 def get_db():
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000, tlsAllowInvalidCertificates=True)
-    return client["sanizinhabot_db"]
+    global _mongo_client
+    if _mongo_client is None:
+        _mongo_client = MongoClient(
+            MONGO_URI, 
+            serverSelectionTimeoutMS=1000, 
+            connectTimeoutMS=1000,
+            maxPoolSize=50,
+            tlsAllowInvalidCertificates=True
+        )
+    return _mongo_client["sanizinhabot_db"]
 
 # --- COMANDO /lw PARA O DONO REGISTRAR O GRUPO COMO ALUGADO ---
 async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -96,7 +101,7 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
         "chat_id": chat.id,
         "ativo": True,
         "expira_em": {"$gt": agora}
-    })
+    }, {"_id": 1})
     if chat_registrado:
         return True
 
@@ -104,7 +109,7 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
         "chat_id": chat.id,
         "ativo": True,
         "expira_em": {"$gt": agora}
-    })
+    }, {"_id": 1})
     if licenca:
         return True
 
@@ -118,7 +123,7 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
             upsert=True
         )
         
-        link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
+        link_privado = f"[https://t.me/](https://t.me/){context.bot.username}?start=aluguel"
         teclado_assinar = InlineKeyboardMarkup([
             [InlineKeyboardButton("💳 Assinar Plano no Privado", url=link_privado)]
         ])
@@ -175,25 +180,6 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
     if not message:
         return
 
-    username_str = f"@{user.username}" if user.username else user.first_name
-
-    if chat.type == "private":
-        logger.info(
-            f"\n__________________\n"
-            f"Tipo : Privado\n"
-            f"Usuário : {username_str} (ID: {user.id})\n"
-            f"Msg : {message.text or '[Mídia/Outro]'}\n"
-            f"__________________"
-        )
-    elif chat.type in ["group", "supergroup"]:
-        logger.info(
-            f"\n__________________\n"
-            f"Grupo : {chat.title} (ID: {chat.id})\n"
-            f"Usuário : {username_str} (ID: {user.id})\n"
-            f"Msg : {message.text or '[Mídia/Outro]'}\n"
-            f"__________________"
-        )
-
     if chat.type == "private":
         return
 
@@ -226,26 +212,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not valido:
             return
 
-    agora = datetime.now(FUSO_SP)
+    agora = datetime.now()
     hora_atual = agora.strftime("%H:%M:%S")
     data_atual = agora.strftime("%d/%m/%Y")
 
     texto_menu = (
-        f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+        "```text\n"
+        "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
         f"✰┃👤 : {user.first_name}\n"
         f"✰┃🆔 : {user.id}\n"
         f"✰┃🕘 : {hora_atual}\n"
         f"✰┃☀️ : {data_atual}\n"
-        f"✰┃ 🤖 **BOT**\n"
-        f"✪/ 🌬️ *Sanizinha* ®\n\n"
-        f"┌──────────┐\n"
-        f"   ≡  **M E N U S**  ≡\n"
-        f"└──────────┘"
+        "✰┃ 🤖 𝗕𝗢𝗧\n"
+        "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
+        "┌──────────┐\n"
+        "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
+        "└──────────┘\n"
+        "```"
     )
 
     botoes = [
-        [InlineKeyboardButton("📜Comandos & Membro", callback_data="menu_membros")],
-        [InlineKeyboardButton("👑Comandos & Adm", callback_data="menu_adm")],
+        [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
+        [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
@@ -269,16 +257,46 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat and chat.type in ["group", "supergroup"]:
         db = get_db()
         agora = time.time()
-        chat_registrado = db["grupos_autorizados"].find_one({"chat_id": chat.id, "expira_em": {"$gt": agora}})
+        chat_registrado = db["grupos_autorizados"].find_one({"chat_id": chat.id, "expira_em": {"$gt": agora}}, {"_id": 1})
         if not chat_registrado and (not DONO_ID or str(user_id) != str(DONO_ID)):
             await query.answer("❌ Este grupo não possui aluguel ativo!", show_alert=True)
             return
 
     if query.data == "menu_membros":
-        await menu_membros_handler(update, context)
+        await query.answer()
+        texto_membros = (
+            "📜 **Comandos para Membros:**\n\n"
+            "🏓 `/ping` - Status de hardware, RAM e latência\n"
+            "👤 `/perfil` - Suas estatísticas completas, bio e mídias\n"
+            "🆔 `/id` - Mostra seu ID e do chat\n"
+            "📥 `/play` ou `/dl` - Baixa vídeos e músicas do YouTube"
+        )
+        teclado_membros = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🏓 Ping", callback_data="botao_ping"), InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil_atalho")],
+            [InlineKeyboardButton("🆔 ID", callback_data="menu_id_atalho"), InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos_atalho")],
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+        ])
+        await query.message.edit_text(texto_membros, reply_markup=teclado_membros, parse_mode="Markdown")
         
     elif query.data == "menu_adm":
-        await menu_adm_handler(update, context)
+        await query.answer()
+        texto_adm = (
+            "🛡️ **Comandos para Administradores:**\n\n"
+            "🔨 `/ban` - Bane o usuário respondido\n"
+            "🔇 `/mutar` / `/desmutar` - Silencia ou libera o usuário\n"
+            "⭐ `/promover` - Promove a administrador\n"
+            "📉 `/rebaixar` - Rebaixa administrador\n"
+            "📢 `/marcar` - Marca todos do grupo\n"
+            "📌 `/citar` - Cita mídias/textos marcando todos\n"
+            "⚙️ `/protecao` - Configura as travas de segurança\n"
+            "👋 Configurar Bem-Vindo abaixo:"
+        )
+        teclado_adm = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛡️ Proteções do Grupo", callback_data="menu_protecoes")],
+            [InlineKeyboardButton("👋 Configurar Bem-Vindo", callback_data="config_bemvindo")],
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+        ])
+        await query.message.edit_text(texto_adm, reply_markup=teclado_adm, parse_mode="Markdown")
 
     elif query.data == "menu_dono":
         if not DONO_ID or str(user_id) != str(DONO_ID):
@@ -344,41 +362,96 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "menu_perfil_atalho":
         await query.answer()
-        from comandos.perfil import perfil_cmd
-        await perfil_cmd(update, context)
+        if chat.type == "private":
+            await query.message.reply_text("⚠️ Use este comando dentro de um grupo para ver suas estatísticas completas!")
+            return
+        
+        total_msgs, fotos, videos, audios, stickers = 1, 0, 0, 0, 0
+        try:
+            db = get_db()
+            doc = db["mensagens_usuarios"].find_one({"chat_id": chat.id, "user_id": user_id})
+            if doc:
+                total_msgs = doc.get("total_mensagens", 1)
+                fotos = doc.get("fotos", 0)
+                videos = doc.get("videos", 0)
+                audios = doc.get("audios", 0)
+                stickers = doc.get("stickers", 0)
+            
+            total_grupo = db["mensagens_usuarios"].aggregate([
+                {"$match": {"chat_id": chat.id}},
+                {"$group": {"_id": None, "soma": {"$sum": "$total_mensagens"}}}
+            ])
+            soma_doc = list(total_grupo)
+            total_geral_grupo = soma_doc[0]["soma"] if soma_doc else 1
+            atividade_pct = min((total_msgs / total_geral_grupo) * 100, 100.0)
+        except Exception:
+            atividade_pct = 0.0
+
+        bio = "Não configurada ou oculta."
+        try:
+            chat_info = await context.bot.get_chat(user_id)
+            if chat_info.bio:
+                bio = chat_info.bio
+        except Exception:
+            pass
+
+        user_obj = update.effective_user
+        texto_perfil = (
+            f"👤 **PERFIL DE {user_obj.first_name.upper()}**\n\n"
+            f"🆔 **ID:** `{user_id}`\n"
+            f"💬 **Bio:** _{bio}_\n\n"
+            f"📊 **ESTATÍSTICAS NO GRUPO:**\n"
+            f"💬 Mensagens Totais: `{total_msgs}`\n"
+            f"📸 Fotos Enviadas: `{fotos}`\n"
+            f"🎥 Vídeos Enviados: `{videos}`\n"
+            f"🎙️ Áudios/Voz: `{audios}`\n"
+            f"🎭 Figurinhas: `{stickers}`\n"
+            f"⚡ Índice de Atividade: `{atividade_pct:.1f}%`"
+        )
+        teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_membros")]])
+        await query.message.edit_text(texto_perfil, reply_markup=teclado_voltar, parse_mode="Markdown")
 
     elif query.data == "menu_id_atalho":
         await query.answer()
-        from comandos.id import id_cmd
-        await id_cmd(update, context)
+        texto = f"🆔 **Seu ID:** `{user_id}`\n"
+        if chat.type in ["group", "supergroup"]:
+            texto += f"🏢 **ID do Grupo:** `{chat.id}`"
+        teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_membros")]])
+        await query.message.edit_text(texto, reply_markup=teclado_voltar, parse_mode="Markdown")
 
     elif query.data == "menu_jogos_atalho":
-        await query.answer("🎮 Funcionalidade de jogos em breve!", show_alert=True)
+        await menu_jogos_handler(update, context)
 
-    elif query.data == "voltar_menu" or query.data == "ver_comandos" or query.data == "voltar_principal_grupo":
+    elif query.data in ["jogo_velha", "jogo_memoria", "jogo_xadrez", "jogo_dama"]:
+        await processar_callback_jogos(update, context)
+
+    elif query.data in ["voltar_menu", "ver_comandos", "voltar_principal_grupo"]:
         await query.answer()
         
-        agora = datetime.now(FUSO_SP)
+        agora = datetime.now()
         hora_atual = agora.strftime("%H:%M:%S")
         data_atual = agora.strftime("%d/%m/%Y")
 
         texto_ajuda = (
-            f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+            "```text\n"
+            "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
             f"✰┃👤 : {update.effective_user.first_name}\n"
             f"✰┃🆔 : {update.effective_user.id}\n"
             f"✰┃🕘 : {hora_atual}\n"
             f"✰┃☀️ : {data_atual}\n"
-            f"✰┃ 🤖 **BOT**\n"
-            f"✪/ 🌬️ *Sanizinha* ®\n\n"
-            f"┌──────────┐\n"
-            f"   ≡  **M E N U S**  ≡\n"
-            f"└──────────┘"
+            "✰┃ 🤖 𝗕𝗢𝗧\n"
+            "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
+            "┌──────────┐\n"
+            "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
+            "└──────────┘\n"
+            "```"
         )
         
         botoes_voltar = [
-            [InlineKeyboardButton("📜Comandos & Membro", callback_data="menu_membros")],
-            [InlineKeyboardButton("👑Comandos & Adm", callback_data="menu_adm")],
+            [InlineKeyboardButton("📜 Ver todos comandos de membros", callback_data="menu_membros")],
+            [InlineKeyboardButton("🛡️ Ver todos comandos de ADM", callback_data="menu_adm")],
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
+            [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
             [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
         ]
         if DONO_ID and str(user_id) == str(DONO_ID):
@@ -389,7 +462,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     threading.Thread(target=run_web, daemon=True).start()
     
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    # Configuração de performance com connection pools e threads ajustadas
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=-1)
 
@@ -434,8 +508,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Bot rodando com sucesso e módulos separados!")
-    app.run_polling(drop_pending_updates=False)
+    logger.info("🤖 Bot rodando com alta performance e módulos separados!")
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
