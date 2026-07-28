@@ -102,15 +102,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     botoes = [
-        [InlineKeyboardButton("📜 Comandos de Membros", callback_data="menu_membros")],
-        [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")],
+        [InlineKeyboardButton("📜 Ver todos comandos de membros", callback_data="menu_membros")],
+        [InlineKeyboardButton("🛡️ Ver todos comandos de ADM", callback_data="menu_adm")],
+        [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
         [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
 
-
     if DONO_ID and str(user.id) == str(DONO_ID):
-        botoes.insert(2, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
+        botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
 
     teclado_painel = InlineKeyboardMarkup(botoes)
 
@@ -230,13 +230,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "voltar_menu" or query.data == "ver_comandos" or query.data == "voltar_principal_grupo":
         await query.answer()
         botoes_voltar = [
-            [InlineKeyboardButton("📜 Comandos de Membros", callback_data="menu_membros")],
-            [InlineKeyboardButton("🛡️ Comandos de ADM", callback_data="menu_adm")],
+            [InlineKeyboardButton("📜 Ver todos comandos de membros", callback_data="menu_membros")],
+            [InlineKeyboardButton("🛡️ Ver todos comandos de ADM", callback_data="menu_adm")],
+            [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
             [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
             [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
         ]
         if DONO_ID and str(user_id) == str(DONO_ID):
-            botoes_voltar.insert(2, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
+            botoes_voltar.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
 
         texto_ajuda = (
             "🔥 **Painel Principal:**\n"
@@ -245,11 +246,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto_ajuda, reply_markup=InlineKeyboardMarkup(botoes_voltar), parse_mode="Markdown")
 
 def main():
-
     threading.Thread(target=run_web, daemon=True).start()
     
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
 
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=-1)
 
@@ -267,6 +266,7 @@ def main():
     from comandos.deploy import registrar_deploy
     from comandos.rank import registrar_rank
     from comandos.figurinha import registrar_figurinha
+    from comandos.aluguel import registrar_aluguel
 
     registrar_figurinha(app)
     registrar_promover(app)
@@ -282,6 +282,9 @@ def main():
     setup_play(app)
     registrar_mutar(app)
     registrar_deploy(app)
+    
+    # Registra o sistema de aluguel modularizado
+    registrar_aluguel(app)
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
