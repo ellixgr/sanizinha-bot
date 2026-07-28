@@ -25,11 +25,17 @@ async def play_pesquisa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = " ".join(context.args)
     status_msg = await message.reply_text("🔍 Procurando...")
 
+    # Opções atualizadas para evitar bloqueios e detecção de bot do YouTube
     ydl_opts = {
         'format': 'best',
         'noplaylist': True,
         'default_search': 'ytsearch1',
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['mweb', 'android', 'web'],
+            }
+        },
+        'socket_timeout': 30,
     }
 
     try:
@@ -105,14 +111,22 @@ async def baixar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'format': 'best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
             'noplaylist': True,
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['mweb', 'android', 'web'],
+                }
+            },
         }
     else:
         ydl_opts = {
             'format': 'bestaudio/best',
             'outtmpl': 'downloads/%(id)s.%(ext)s',
             'noplaylist': True,
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['mweb', 'android', 'web'],
+                }
+            },
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
