@@ -112,7 +112,7 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
             upsert=True
         )
         
-        link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
+        link_privado = f"[https://t.me/](https://t.me/){context.bot.username}?start=aluguel"
         teclado_assinar = InlineKeyboardMarkup([
             [InlineKeyboardButton("💳 Assinar Plano no Privado", url=link_privado)]
         ])
@@ -224,25 +224,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hora_atual = agora.strftime("%H:%M:%S")
     data_atual = agora.strftime("%d/%m/%Y")
 
-    # Menu limpo sem caixa cinza e sem desalinhar
+    # Usando bloco de código monospaced (```) para alinhar perfeitamente em qualquer tela
     texto_menu = (
-        f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
-        f"✰┃👤 : `{user.first_name}`\n"
-        f"✰┃🆔 : `{user.id}`\n"
-        f"✰┃🕘 : `{hora_atual}`\n"
-        f"✰┃☀️ : `{data_atual}`\n"
-        f"✰┃ 🤖 𝗕𝗢𝗧 🏌️‍♀️\n"
-        f"✪/  🌬️ Sanizinha ®\n\n"
-        f"┌──────────┐\n"
-        f"   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
-        f"└──────────┘"
+        "```text\n"
+        "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+        f"✰┃👤 : {user.first_name}\n"
+        f"✰┃🆔 : {user.id}\n"
+        f"✰┃🕘 : {hora_atual}\n"
+        f"✰┃☀️ : {data_atual}\n"
+        "✰┃ 🤖 𝗕𝗢𝗧\n"
+        "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
+        "┌──────────┐\n"
+        "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
+        "└──────────┘\n"
+        "```"
     )
 
     botoes = [
-        [InlineKeyboardButton("📜 Ver todos comandos de membros", callback_data="menu_membros")],
-        [InlineKeyboardButton("🛡️ Ver todos comandos de ADM", callback_data="menu_adm")],
+        [InlineKeyboardButton("📜Comandos & Membro", callback_data="menu_membros")],
+        [InlineKeyboardButton("👑Comandos & Adm", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
-        [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
 
@@ -374,16 +375,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_atual = agora.strftime("%d/%m/%Y")
 
         texto_ajuda = (
-            f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
-            f"✰┃👤 : `{update.effective_user.first_name}`\n"
-            f"✰┃🆔 : `{update.effective_user.id}`\n"
-            f"✰┃🕘 : `{hora_atual}`\n"
-            f"✰┃☀️ : `{data_atual}`\n"
-            f"✰┃ 🤖 𝗕𝗢𝗧 🏌️‍♀️\n"
-            f"✪/  🌬️ Sanizinha ®\n\n"
-            f"┌──────────┐\n"
-            f"   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
-            f"└──────────┘"
+            "```text\n"
+            "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+            f"✰┃👤 : {update.effective_user.first_name}\n"
+            f"✰┃🆔 : {update.effective_user.id}\n"
+            f"✰┃🕘 : {hora_atual}\n"
+            f"✰┃☀️ : {data_atual}\n"
+            "✰┃ 🤖 𝗕𝗢𝗧\n"
+            "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
+            "┌──────────┐\n"
+            "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
+            "└──────────┘\n"
+            "```"
         )
         
         botoes_voltar = [
