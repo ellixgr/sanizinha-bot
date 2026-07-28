@@ -44,15 +44,22 @@ async def fazer_figurinhas_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
             output_path += ".webp"
             await arquivo.download_to_drive(input_path)
 
-            # Processamento de Imagem com Pillow (Redimensiona para 512x512 mantendo proporção)
-            img = Image.open(input_path)
-            img.thumbnail((512, 512))
+            # Processamento de Imagem com Pillow para criar um quadrado perfeito 512x512
+            img = Image.open(input_path).convert("RGBA")
             
-            # Converte para RGBA se necessário
-            if img.mode != "RGBA":
-                img = img.convert("RGBA")
+            # Redimensiona mantendo a proporção para caber dentro de 512x512
+            img.thumbnail((512, 512), Image.Resampling.LANCZOS)
+            
+            # Cria uma base transparente 512x512
+            novo_fundo = Image.new("RGBA", (512, 512), (0, 0, 0, 0))
+            
+            # Calcula a posição centralizada para colar a foto no fundo quadrado
+            x = (512 - img.width) // 2
+            y = (512 - img.height) // 2
+            novo_fundo.paste(img, (x, y), img)
 
-            img.save(output_path, "WEBP", quality=90, method=6)
+            # Salva no formato webp otimizado para sticker
+            novo_fundo.save(output_path, "WEBP", quality=95, method=6)
 
             # Envia a figurinha estática
             with open(output_path, "rb") as f:
@@ -65,21 +72,20 @@ async def fazer_figurinhas_cmd(update: Update, context: ContextTypes.DEFAULT_TYP
             output_path += ".webm"
             await arquivo.download_to_drive(input_path)
 
-            # Processamento de Vídeo com FFmpeg (Obrigatório para figurinha animada no Telegram)
-            # Converte para WebM VP9, max 512x512, max 30fps, cortado para máx 3 segundos ou o tamanho real se menor
+            # Processamento de Vídeo com FFmpeg forçando tamanho quadrado 512x512 (preenchendo com transparência se necessário)
             comando_ffmpeg = [
                 "ffmpeg", "-y", "-i", input_path,
-                "-t", "3",  # Limita por segurança a 3 segundos (ou ajusta pro formato aceito)
-                "-vf", "scale='if(gt(iw,ih),512,-2)':'if(gt(iw,ih),-2,512)',format=yuva420p,fps=30",
+                "-t", "3",  # Limita a 3 segundos para figurinha animada
+                "-vf", "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black@0,format=yuva420p,fps=30",
                 "-c:v", "libvpx-vp9", "-crf", "30", "-b:v", "256k",
-                "-an",  # Sem som (Telegram não aceita som em figurinhas)
+                "-an",  # Sem som
                 output_path
             ]
             
             processo = subprocess.run(comando_ffmpeg, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
             if processo.returncode != 0:
-                await status_msg.edit_text("❌ Erro ao converter o vídeo em figurinha animada. Certifique-se de que o FFmpeg está instalado no ambiente.")
+                await status_msg.edit_text("❌ Erro ao converter o vídeo em figurinha animada.")
                 return
 
             # Envia a figurinha animada
