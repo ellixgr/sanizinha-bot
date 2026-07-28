@@ -1,4 +1,5 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from comandos.jogos.menujogos import menu_jogos_handler
 
 async def menu_membros_handler(update, context):
     query = update.callback_query
