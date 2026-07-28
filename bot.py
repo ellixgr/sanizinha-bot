@@ -130,7 +130,8 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
     if chat.type in ["group", "supergroup"]:
         valido = await verificar_licenca_grupo(update, context)
         if not valido:
-            raise SystemExit # Interrompe qualquer execução posterior no grupo pirata
+            return # <--- APENAS PARA A EXECUÇÃO SEM MATAR O BOTECO 
+
 
     message = update.message
     if not message:
