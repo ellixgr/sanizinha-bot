@@ -243,47 +243,48 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
     except Exception as e:
         await query.answer(f"⚠️ Erro ao verificar pagamento: {e}", show_alert=True)
 
-# --- CONTROLE DE ENTRADA EM GRUPOS ---
+# --- CONTROLE DE ENTRADA EM GRUPOS (CORRIGIDO) ---
 async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
-    if chat.type not in ["group", "supergroup", "channel"]:
+    if not chat or chat.type not in ["group", "supergroup", "channel"]:
         return
 
-    try:
-        user_id = update.message.from_user.id
-        comprador = update.message.from_user
-    except Exception:
+    # Garante segurança caso o update venha de diferentes formas de system message
+    user = update.effective_user
+    if not user:
         return
 
     db = get_db()
     agora = time.time()
 
-    # Se quem adicionou for o Dono, concede licença automática na hora se não tiver
-    if DONO_ID and str(user_id) == str(DONO_ID):
+    # Se quem adicionou for o Dono, valida automaticamente
+    if DONO_ID and str(user.id) == str(DONO_ID):
         db["licencas_aluguel"].update_one(
-            {"user_id": user_id},
+            {"user_id": user.id},
             {"$setOnInsert": {"expira_em": agora + (30 * 86400), "meses": 1, "ativo": True}},
             upsert=True
         )
 
-    licenca = db["licencas_aluguel"].find_one({"user_id": user_id})
+    # Verifica se o grupo já está liberado de forma avulsa (ex: via /lw) ou por licença do usuário
+    chat_registrado = db["grupos_autorizados"].find_one({"chat_id": chat.id, "expira_em": {"$gt": agora}})
+    licenca = db["licencas_aluguel"].find_one({"user_id": user.id})
     
-    # Valida se tem licença ativa e válida
-    if licenca and licenca.get("ativo", False) and licenca.get("expira_em", 0) > agora:
-        tempo_restante_segundos = licenca["expira_em"] - agora
-        dias_restantes = int(tempo_restante_segundos // 86400)
-        meses_restantes = licenca.get("meses", 1)
-        
-        if dias_restantes > 30:
-            tempo_texto = f"aproximadamente {meses_restantes} mês(es)"
-        else:
-            tempo_texto = f"{dias_restantes} dia(s)"
+    tem_licenca_valida = (chat_registrado or (licenca and licenca.get("ativo", False) and licenca.get("expira_em", 0) > agora))
 
-        username_mencao = f"@{comprador.username}" if comprador.username else comprador.first_name
+    if tem_licenca_valida:
+        if chat_registrado:
+            tempo_texto = "de forma permanente (Dono)"
+        else:
+            tempo_restante_segundos = licenca["expira_em"] - agora
+            dias_restantes = int(tempo_restante_segundos // 86400)
+            meses_restantes = licenca.get("meses", 1)
+            tempo_texto = f"aproximadamente {meses_restantes} mês(es)" if dias_restantes > 30 else f"{dias_restantes} dia(s)"
+
+        username_mencao = f"@{user.username}" if user.username else user.first_name
 
         mensagem_boas_vindas = (
             f"Olá me chamo sanizinha 😼 sou um boteco do telegram\n"
-            f"Vou ficar aqui até {tempo_texto} no grupo\n"
+            f"Vou ficar aqui por {tempo_texto} no grupo\n"
             f"O ADM {username_mencao} fez a boa e pagou a pobrezinha aqui 👉🏻👈🏻\n"
             f"👉🏻 Qualquer coisa tô sempre on, é só chamar 🫶🏻"
         )
@@ -292,7 +293,6 @@ async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_
             await chat.send_message(mensagem_boas_vindas)
         except Exception:
             pass
-        return
 
 def registrar_aluguel(app):
     app.add_handler(CallbackQueryHandler(painel_aluguel, pattern="^menu_aluguel$"))
