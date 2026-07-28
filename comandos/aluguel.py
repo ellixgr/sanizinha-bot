@@ -16,6 +16,23 @@ def get_db():
 # --- PAINEL DE ALUGUEL (MENU) ---
 async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    chat = update.effective_chat
+    
+    # SEGURANÇA: Se não for chat privado, impede abrir o painel e manda para o privado
+    if chat and chat.type in ["group", "supergroup", "channel"]:
+        if query:
+            await query.answer("⚠️ Por segurança, o painel de aluguel só pode ser aberto no chat privado!", show_alert=True)
+            link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
+            teclado_privado = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💳 Ir para o Privado Assinar", url=link_privado)]
+            ])
+            await query.message.reply_text(
+                "🔒 **Painel Protegido:**\nPor motivos de segurança, o sistema de aluguel e pagamentos via Pix só funciona no meu chat privado. Clique no botão abaixo para abrir:",
+                reply_markup=teclado_privado,
+                parse_mode="Markdown"
+            )
+        return
+
     user_id = update.effective_user.id
     
     context.user_data[f"aluguel_meses_{user_id}"] = 1
@@ -47,6 +64,12 @@ async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    chat = update.effective_chat
+    
+    if chat and chat.type in ["group", "supergroup", "channel"]:
+        await query.answer("⚠️ Esta ação só pode ser feita no chat privado!", show_alert=True)
+        return
+
     user_id = update.effective_user.id
     data = query.data
     
@@ -97,6 +120,12 @@ async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_
 # --- GERAÇÃO DO PIX VIA MERCADO PAGO ---
 async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    chat = update.effective_chat
+    
+    if chat and chat.type in ["group", "supergroup", "channel"]:
+        await query.answer("⚠️ O pagamento só pode ser gerado no chat privado!", show_alert=True)
+        return
+
     user_id = update.effective_user.id
     user = update.effective_user
     
@@ -243,13 +272,12 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
     except Exception as e:
         await query.answer(f"⚠️ Erro ao verificar pagamento: {e}", show_alert=True)
 
-# --- CONTROLE DE ENTRADA EM GRUPOS (CORRIGIDO) ---
+# --- CONTROLE DE ENTRADA EM GRUPOS ---
 async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if not chat or chat.type not in ["group", "supergroup", "channel"]:
         return
 
-    # Garante segurança caso o update venha de diferentes formas de system message
     user = update.effective_user
     if not user:
         return
@@ -257,7 +285,6 @@ async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_
     db = get_db()
     agora = time.time()
 
-    # Se quem adicionou for o Dono, valida automaticamente
     if DONO_ID and str(user.id) == str(DONO_ID):
         db["licencas_aluguel"].update_one(
             {"user_id": user.id},
@@ -265,7 +292,6 @@ async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_
             upsert=True
         )
 
-    # Verifica se o grupo já está liberado de forma avulsa (ex: via /lw) ou por licença do usuário
     chat_registrado = db["grupos_autorizados"].find_one({"chat_id": chat.id, "expira_em": {"$gt": agora}})
     licenca = db["licencas_aluguel"].find_one({"user_id": user.id})
     
