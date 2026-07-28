@@ -2,6 +2,7 @@ import os
 import logging
 import threading
 import time
+from datetime import datetime
 from flask import Flask
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -47,10 +48,8 @@ async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAU
 
     db = get_db()
     agora = time.time()
-    # Define validade de 10 anos (praticamente vitalício/permanente) ou o tempo desejado
     expira_em = agora + (10 * 365 * 24 * 60 * 60)
 
-    # Salva na coleção 'grupos_autorizados' que a verificação de licença consulta
     db["grupos_autorizados"].update_one(
         {"chat_id": chat.id},
         {
@@ -65,7 +64,6 @@ async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAU
         upsert=True
     )
 
-    # Limpa eventuais avisos de grupo pirata existentes para este chat
     db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
 
     await update.message.reply_text(
@@ -83,14 +81,12 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
     if not chat or chat.type == "private":
         return True
 
-    # Se for o dono do bot, libera automático
     if DONO_ID and user and str(user.id) == str(DONO_ID):
         return True
 
     db = get_db()
     agora = time.time()
 
-    # 1. Verifica se o grupo foi explicitamente autorizado/registrado (ex: via comando /lw)
     chat_registrado = db["grupos_autorizados"].find_one({
         "chat_id": chat.id,
         "ativo": True,
@@ -99,7 +95,6 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
     if chat_registrado:
         return True
 
-    # 2. Verifica se o grupo está registrado em alguma licença ativa de aluguel por usuário
     licenca = db["licencas_aluguel"].find_one({
         "chat_id": chat.id,
         "ativo": True,
@@ -108,10 +103,9 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
     if licenca:
         return True
 
-    # 3. Sistema de controle de avisos (Máximo 5 avisos, 1 minuto de intervalo)
     controle_aviso = db["avisos_grupos_piratas"].find_one({"chat_id": chat.id}) or {"avisos": 0, "ultimo_aviso": 0}
     
-    if agora - controle_aviso.get("ultimo_aviso", 0) > 60: # Intervalo de 1 minuto
+    if agora - controle_aviso.get("ultimo_aviso", 0) > 60:
         novos_avisos = controle_aviso.get("avisos", 0) + 1
         db["avisos_grupos_piratas"].update_one(
             {"chat_id": chat.id},
@@ -167,11 +161,10 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
     if not chat or not user:
         return
 
-    # Bloqueia grupos sem licença antes de processar qualquer coisa
     if chat.type in ["group", "supergroup"]:
         valido = await verificar_licenca_grupo(update, context)
         if not valido:
-            return # <--- APENAS PARA A EXECUÇÃO SEM MATAR O BOTECO 
+            return 
 
     message = update.message
     if not message:
@@ -228,6 +221,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not valido:
             return
 
+    # Pegando dados de Hora e Data atuais (fuso horário local aproximado)
+    agora = datetime.now()
+    hora_atual = agora.strftime("%H:%M:%S")
+    data_atual = agora.strftime("%d/%m/%Y")
+
+    # Montando o texto visual com o layout solicitado
+    texto_menu = (
+        f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+        f"✰┃👤 : {user.first_name}\n"
+        f"✰┃🆔 : {user.id}\n"
+        f"✰┃🕘 : {hora_atual}\n"
+        f"✰┃☀️ : {data_atual}\n"
+        f"✰┃ 🤖 𝗕𝗢𝗧🏌️‍♀️\n"
+        f"✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢💞 ®\n\n"
+        f"┌──────────┐\n"
+        f"   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
+        f"└──────────┘"
+    )
+
     botoes = [
         [InlineKeyboardButton("📜 Ver todos comandos de membros", callback_data="menu_membros")],
         [InlineKeyboardButton("🛡️ Ver todos comandos de ADM", callback_data="menu_adm")],
@@ -241,16 +253,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     teclado_painel = InlineKeyboardMarkup(botoes)
 
-    if chat.type in ["group", "supergroup"]:
-        await update.message.reply_text(
-            f"🔥 **Eae, {user.first_name}!** O bot está ativo neste grupo.\nEscolha uma das categorias abaixo para ver os comandos:",
-            reply_markup=teclado_painel,
-            parse_mode="Markdown"
-        )
-        return
-    
     await update.message.reply_text(
-        f"🔥 **Eae, {user.first_name}!** Escolha o que deseja fazer abaixo:",
+        texto_menu,
         reply_markup=teclado_painel,
         parse_mode="Markdown"
     )
@@ -344,6 +348,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         try:
             from comandos.protecao import enviar_painel_protecoes
+            update.callback_query = query
             await enviar_painel_protecoes(update, context)
         except Exception as e:
             await query.message.reply_text(f"⚠️ Erro ao abrir o painel de proteções: {e}")
@@ -365,6 +370,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "voltar_menu" or query.data == "ver_comandos" or query.data == "voltar_principal_grupo":
         await query.answer()
+        
+        agora = datetime.now()
+        hora_atual = agora.strftime("%H:%M:%S")
+        data_atual = agora.strftime("%d/%m/%Y")
+
+        texto_ajuda = (
+            f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+            f"✰┃👤 : {update.effective_user.first_name}\n"
+            f"✰┃🆔 : {update.effective_user.id}\n"
+            f"✰┃🕘 : {hora_atual}\n"
+            f"✰┃☀️ : {data_atual}\n"
+            f"✰┃ 🤖 𝗕𝗢𝗧🏌️‍♀️\n"
+            f"✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢💞 ®\n\n"
+            f"┌──────────┐\n"
+            f"   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
+            f"└──────────┘"
+        )
+        
         botoes_voltar = [
             [InlineKeyboardButton("📜 Ver todos comandos de membros", callback_data="menu_membros")],
             [InlineKeyboardButton("🛡️ Ver todos comandos de ADM", callback_data="menu_adm")],
@@ -375,10 +398,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if DONO_ID and str(user_id) == str(DONO_ID):
             botoes_voltar.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
 
-        texto_ajuda = (
-            "🔥 **Painel Principal:**\n"
-            "Escolha uma das categorias abaixo:"
-        )
         await query.message.edit_text(texto_ajuda, reply_markup=InlineKeyboardMarkup(botoes_voltar), parse_mode="Markdown")
 
 def main():
@@ -418,10 +437,8 @@ def main():
     setup_play(app)
     registrar_mutar(app)
     registrar_deploy(app)
-    
     registrar_aluguel(app)
 
-    # Registro do comando /lw exclusivo do dono
     app.add_handler(CommandHandler("lw", cmd_registrar_aluguel_dono))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
