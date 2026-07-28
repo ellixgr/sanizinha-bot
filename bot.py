@@ -3,10 +3,14 @@ import logging
 import threading
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from flask import Flask
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler
+
+# Importando os menus organizados
+from comandos.menus import menu_membros_handler, menu_adm_handler
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -17,6 +21,8 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 MONGO_URI = os.environ.get("MONGO_URI")
 DONO_ID = os.environ.get("DONO_ID")
+
+FUSO_SP = ZoneInfo("America/Sao_Paulo")
 
 app_web = Flask(__name__)
 
@@ -220,7 +226,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not valido:
             return
 
-    agora = datetime.now()
+    agora = datetime.now(FUSO_SP)
     hora_atual = agora.strftime("%H:%M:%S")
     data_atual = agora.strftime("%d/%m/%Y")
 
@@ -269,38 +275,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     if query.data == "menu_membros":
-        await query.answer()
-        texto_membros = (
-            "📜 **Comandos para Membros:**\n\n"
-            "🏓 `/ping` - Status de hardware, RAM e latência\n"
-            "👤 `/perfil` - Suas estatísticas completas, bio e mídias\n"
-            "🆔 `/id` - Mostra seu ID e do chat\n"
-            "📥 `/play` ou `/dl` - Baixa vídeos e músicas do YouTube"
-        )
-        teclado_voltar = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
-        ])
-        await query.message.edit_text(texto_membros, reply_markup=teclado_voltar, parse_mode="Markdown")
+        await menu_membros_handler(update, context)
         
     elif query.data == "menu_adm":
-        await query.answer()
-        texto_adm = (
-            "🛡️ **Comandos para Administradores:**\n\n"
-            "🔨 `/ban` - Bane o usuário respondido\n"
-            "🔇 `/mutar` / `/desmutar` - Silencia ou libera o usuário\n"
-            "⭐ `/promover` - Promove a administrador\n"
-            "📉 `/rebaixar` - Rebaixa administrador\n"
-            "📢 `/marcar` - Marca todos do grupo\n"
-            "📌 `/citar` - Cita mídias/textos marcando todos\n"
-            "⚙️ `/protecao` - Configura as travas de segurança\n"
-            "👋 Configurar Bem-Vindo abaixo:"
-        )
-        teclado_adm = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛡️ Proteções do Grupo", callback_data="menu_protecoes")],
-            [InlineKeyboardButton("👋 Configurar Bem-Vindo", callback_data="config_bemvindo")],
-            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
-        ])
-        await query.message.edit_text(texto_adm, reply_markup=teclado_adm, parse_mode="Markdown")
+        await menu_adm_handler(update, context)
 
     elif query.data == "menu_dono":
         if not DONO_ID or str(user_id) != str(DONO_ID):
@@ -364,10 +342,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from comandos.ping import ping_cmd
         await ping_cmd(update, context)
 
+    elif query.data == "menu_perfil_atalho":
+        await query.answer()
+        from comandos.perfil import perfil_cmd
+        await perfil_cmd(update, context)
+
+    elif query.data == "menu_id_atalho":
+        await query.answer()
+        from comandos.id import id_cmd
+        await id_cmd(update, context)
+
+    elif query.data == "menu_jogos_atalho":
+        await query.answer("🎮 Funcionalidade de jogos em breve!", show_alert=True)
+
     elif query.data == "voltar_menu" or query.data == "ver_comandos" or query.data == "voltar_principal_grupo":
         await query.answer()
         
-        agora = datetime.now()
+        agora = datetime.now(FUSO_SP)
         hora_atual = agora.strftime("%H:%M:%S")
         data_atual = agora.strftime("%d/%m/%Y")
 
