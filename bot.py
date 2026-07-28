@@ -224,27 +224,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     hora_atual = agora.strftime("%H:%M:%S")
     data_atual = agora.strftime("%d/%m/%Y")
 
-    # Usando bloco de código monospaced (```) para alinhar perfeitamente em qualquer tela
+    # Sem crases triplas: zero caixa cinza e zero botão de copiar do Telegram
     texto_menu = (
-        "```text\n"
-        "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+        f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
         f"✰┃👤 : {user.first_name}\n"
         f"✰┃🆔 : {user.id}\n"
         f"✰┃🕘 : {hora_atual}\n"
         f"✰┃☀️ : {data_atual}\n"
-        "✰┃ 🤖 𝗕𝗢𝗧\n"
-        "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
-        "┌──────────┐\n"
-        "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
-        "└──────────┘\n"
-        "```"
+        f"✰┃ 🤖 **BOT**\n"
+        f"✪/ 🌬️ *Sanizinha* ®\n\n"
+        f"┌──────────┐\n"
+        f"   ≡  **M E N U S**  ≡\n"
+        f"└──────────┘"
     )
 
     botoes = [
         [InlineKeyboardButton("📜Comandos & Membro", callback_data="menu_membros")],
         [InlineKeyboardButton("👑Comandos & Adm", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
-        [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
+        [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"[https://t.me/](https://t.me/){context.bot.username}?startgroup=true")]
     ]
 
     if DONO_ID and str(user.id) == str(DONO_ID):
@@ -375,26 +373,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_atual = agora.strftime("%d/%m/%Y")
 
         texto_ajuda = (
-            "```text\n"
-            "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+            f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
             f"✰┃👤 : {update.effective_user.first_name}\n"
             f"✰┃🆔 : {update.effective_user.id}\n"
             f"✰┃🕘 : {hora_atual}\n"
             f"✰┃☀️ : {data_atual}\n"
-            "✰┃ 🤖 𝗕𝗢𝗧\n"
-            "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
-            "┌──────────┐\n"
-            "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
-            "└──────────┘\n"
-            "```"
+            f"✰┃ 🤖 **BOT**\n"
+            f"✪/ 🌬️ *Sanizinha* ®\n\n"
+            f"┌──────────┐\n"
+            f"   ≡  **M E N U S**  ≡\n"
+            f"└──────────┘"
         )
         
         botoes_voltar = [
-            [InlineKeyboardButton("📜 Ver todos comandos de membros", callback_data="menu_membros")],
-            [InlineKeyboardButton("🛡️ Ver todos comandos de ADM", callback_data="menu_adm")],
+            [InlineKeyboardButton("📜Comandos & Membro", callback_data="menu_membros")],
+            [InlineKeyboardButton("👑Comandos & Adm", callback_data="menu_adm")],
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
-            [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
-            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
+            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"[https://t.me/](https://t.me/){context.bot.username}?startgroup=true")]
         ]
         if DONO_ID and str(user_id) == str(DONO_ID):
             botoes_voltar.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
