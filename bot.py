@@ -31,6 +31,50 @@ def get_db():
     client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000, tlsAllowInvalidCertificates=True)
     return client["sanizinhabot_db"]
 
+# --- COMANDO /lw PARA O DONO REGISTRAR O GRUPO COMO ALUGADO ---
+async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not chat or chat.type == "private":
+        await update.message.reply_text("⚠️ Este comando só pode ser usado dentro de grupos ou canais!")
+        return
+
+    # Valida se quem mandou é o dono do bot
+    if not DONO_ID or str(user.id) != str(DONO_ID):
+        await update.message.reply_text("❌ Apenas o dono do bot pode utilizar este comando.")
+        return
+
+    db = get_db()
+    agora = time.time()
+    # Define validade de 10 anos (praticamente vitalício/permanente) ou o tempo desejado
+    expira_em = agora + (10 * 365 * 24 * 60 * 60)
+
+    # Salva na coleção 'grupos_autorizados' que a verificação de licença consulta
+    db["grupos_autorizados"].update_one(
+        {"chat_id": chat.id},
+        {
+            "$set": {
+                "chat_id": chat.id,
+                "chat_title": chat.title,
+                "registrado_por": user.id,
+                "expira_em": expira_em,
+                "ativo": True
+            }
+        },
+        upsert=True
+    )
+
+    # Limpa eventuais avisos de grupo pirata existentes para este chat
+    db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
+
+    await update.message.reply_text(
+        f"✅ **Grupo Registrado com Sucesso!**\n\n"
+        f"Este chat (`{chat.id}`) foi definido como alugado pelo Dono. "
+        f"Os avisos de cobrança foram desativados e o bot funcionará normalmente aqui!",
+        parse_mode="Markdown"
+    )
+
 # --- FUNÇÃO DE VALIDAÇÃO DE LICENÇA DO GRUPO ---
 async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     chat = update.effective_chat
@@ -46,61 +90,58 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
     db = get_db()
     agora = time.time()
 
-    # Verifica se o grupo está registrado em alguma licença ativa e válida de algum usuário
+    # 1. Verifica se o grupo foi explicitamente autorizado/registrado (ex: via comando /lw)
+    chat_registrado = db["grupos_autorizados"].find_one({
+        "chat_id": chat.id,
+        "ativo": True,
+        "expira_em": {"$gt": agora}
+    })
+    if chat_registrado:
+        return True
+
+    # 2. Verifica se o grupo está registrado em alguma licença ativa de aluguel por usuário
     licenca = db["licencas_aluguel"].find_one({
         "chat_id": chat.id,
         "ativo": True,
         "expira_em": {"$gt": agora}
     })
+    if licenca:
+        return True
 
-    # Alternativa: se a licença for salva por usuário, checa se há pelo menos uma licença válida no bot ou ligada ao criador
-    if not licenca:
-        # Verifica se o bot tem qualquer licença global ativa associada ao grupo
-        licenca_geral = db["licencas_aluguel"].find_one({
-            "ativo": True,
-            "expira_em": {"$gt": agora}
-        })
-        # Se quiser travar estritamente pelo chat_id vinculado ao pagamento:
-        chat_registrado = db["grupos_autorizados"].find_one({"chat_id": chat.id, "expira_em": {"$gt": agora}})
-        if chat_registrado:
-            return True
+    # 3. Sistema de controle de avisos (Máximo 5 avisos, 1 minuto de intervalo)
+    controle_aviso = db["avisos_grupos_piratas"].find_one({"chat_id": chat.id}) or {"avisos": 0, "ultimo_aviso": 0}
+    
+    if agora - controle_aviso.get("ultimo_aviso", 0) > 60: # Intervalo de 1 minuto
+        novos_avisos = controle_aviso.get("avisos", 0) + 1
+        db["avisos_grupos_piratas"].update_one(
+            {"chat_id": chat.id},
+            {"$set": {"avisos": novos_avisos, "ultimo_aviso": agora}},
+            upsert=True
+        )
         
-        # Sistema de controle de avisos (Máximo 5 avisos, 1 minuto de intervalo)
-        controle_aviso = db["avisos_grupos_piratas"].find_one({"chat_id": chat.id}) or {"avisos": 0, "ultimo_aviso": 0}
+        link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
+        teclado_assinar = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💳 Assinar Plano no Privado", url=link_privado)]
+        ])
         
-        if agora - controle_aviso.get("ultimo_aviso", 0) > 60: # Intervalo de 1 minuto
-            novos_avisos = controle_aviso.get("avisos", 0) + 1
-            db["avisos_grupos_piratas"].update_one(
-                {"chat_id": chat.id},
-                {"$set": {"avisos": novos_avisos, "ultimo_aviso": agora}},
-                upsert=True
-            )
+        try:
+            if novos_avisos >= 5:
+                await chat.send_message(
+                    "🚨 **Limite de Avisos Atingidos!**\nEste grupo não possui aluguel ativo e os 5 avisos esgotaram. O bot está se retirando do grupo.",
+                    parse_mode="Markdown"
+                )
+                await context.bot.leave_chat(chat.id)
+                db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
+            else:
+                await chat.send_message(
+                    f"⚠️ **Aviso ({novos_avisos}/5):** Este grupo não possui um aluguel ativo!\nPara o bot funcionar aqui, o responsável precisa assinar o plano:",
+                    reply_markup=teclado_assinar,
+                    parse_mode="Markdown"
+                )
+        except Exception:
+            pass
             
-            link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
-            teclado_assinar = InlineKeyboardMarkup([
-                [InlineKeyboardButton("💳 Assinar Plano no Privado", url=link_privado)]
-            ])
-            
-            try:
-                if novos_avisos >= 5:
-                    await chat.send_message(
-                        "🚨 **Limite de Avisos Atingidos!**\nEste grupo não possui aluguel ativo e os 5 avisos esgotaram. O bot está se retirando do grupo.",
-                        parse_mode="Markdown"
-                    )
-                    await context.bot.leave_chat(chat.id)
-                    db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
-                else:
-                    await chat.send_message(
-                        f"⚠️ **Aviso ({novos_avisos}/5):** Este grupo não possui um aluguel ativo!\nPara o bot funcionar aqui, o responsável precisa assinar o plano:",
-                        reply_markup=teclado_assinar,
-                        parse_mode="Markdown"
-                    )
-            except Exception:
-                pass
-                
-        return False
-
-    return True
+    return False
 
 async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
@@ -131,7 +172,6 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
         valido = await verificar_licenca_grupo(update, context)
         if not valido:
             return # <--- APENAS PARA A EXECUÇÃO SEM MATAR O BOTECO 
-
 
     message = update.message
     if not message:
@@ -380,6 +420,9 @@ def main():
     registrar_deploy(app)
     
     registrar_aluguel(app)
+
+    # Registro do comando /lw exclusivo do dono
+    app.add_handler(CommandHandler("lw", cmd_registrar_aluguel_dono))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
