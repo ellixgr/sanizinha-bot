@@ -3,7 +3,7 @@ import time
 import requests
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
-from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler
+from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 MONGO_URI = os.environ.get("MONGO_URI")
 MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN")
@@ -103,7 +103,7 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     meses = context.user_data.get(f"aluguel_meses_{user_id}", 1)
     valor = context.user_data.get(f"aluguel_valor_{user_id}", float(meses * 10.00))
     
-    # Bypass para o Dono do Bot (Registra licença direto e pula para o botão de add)
+    # Bypass para o Dono do Bot
     if DONO_ID and str(user_id) == str(DONO_ID):
         payment_id = 999999999
         db = get_db()
@@ -119,7 +119,7 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto_dono = (
             f"👑 **Modo Dono Ativado!**\n\n"
             f"Sua licença de {meses} mês(es) foi gerada e ativada automaticamente.\n"
-            f"Clique no botão abaixo para adicionar o bot ao grupo:"
+            f"Adicione o bot a um grupo para testar!"
         )
         link_adicao = f"https://t.me/{context.bot.username}?startgroup=true"
         teclado_dono = InlineKeyboardMarkup([
@@ -244,7 +244,7 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
     except Exception as e:
         await query.answer(f"⚠️ Erro ao verificar pagamento: {e}", show_alert=True)
 
-# --- CONTROLE DE ENTRADA E MENSAGEM PERSONALIZADA ---
+# --- CONTROLE DE ENTRADA E BLOQUEIO DE GRUPOS NÃO PAGOS ---
 async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if chat.type not in ["group", "supergroup", "channel"]:
@@ -257,9 +257,19 @@ async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_
         return
 
     db = get_db()
-    licenca = db["licencas_aluguel"].find_one({"user_id": user_id})
     agora = time.time()
+
+    # Se quem adicionou for o Dono, concede licença automática na hora se não tiver
+    if DONO_ID and str(user_id) == str(DONO_ID):
+        db["licencas_aluguel"].update_one(
+            {"user_id": user_id},
+            {"$setOnInsert": {"expira_em": agora + (30 * 86400), "meses": 1, "ativo": True}},
+            upsert=True
+        )
+
+    licenca = db["licencas_aluguel"].find_one({"user_id": user_id})
     
+    # Valida se tem licença ativa e válida
     if licenca and licenca.get("ativo", False) and licenca.get("expira_em", 0) > agora:
         tempo_restante_segundos = licenca["expira_em"] - agora
         dias_restantes = int(tempo_restante_segundos // 86400)
@@ -285,20 +295,45 @@ async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_
             pass
         return
     
+    # Se NÃO TIVER PAGO / Licença Vencida: O bot avisa, manda o botão para assinar no privado e SAI DO GRUPO imediatamente
+    link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
     texto_aviso = (
-        "⚠️ **Aluguel Expirado ou Não Encontrado!**\n\n"
-        "O usuário que adicionou este bot não possui um plano de aluguel ativo ou o prazo venceu.\n"
-        "O bot está se retirando deste grupo/canal. Para alugar, fale com o bot no privado!"
+        "⚠️ **Aluguel Não Encontrado ou Expirado!**\n\n"
+        "O usuário que adicionou este bot não possui um plano de aluguel ativo.\n"
+        "Para o bot funcionar aqui, é preciso assinar o plano clicando no botão abaixo:"
     )
+    teclado_assinar = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 Assinar Plano", url=link_privado)]
+    ])
+    
     try:
-        await chat.send_message(texto_aviso, parse_mode="Markdown")
+        await chat.send_message(texto_aviso, reply_markup=teclado_assinar, parse_mode="Markdown")
     except Exception:
         pass
     
+    # Tenta sair do grupo na hora
     try:
         await context.bot.leave_chat(chat.id)
     except Exception:
         pass
+
+# --- BLOQUEIO GLOBAL DE COMANDOS SE O GRUPO NÃO ESTIVER LICENCIADO ---
+async def bloquear_comandos_nao_pagos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    if chat.type in ["group", "supergroup", "channel"]:
+        # Se por acaso o bot ficou preso no grupo sem sair, bloqueia os comandos e exige assinatura
+        link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
+        teclado_assinar = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💳 Assinar Plano", url=link_privado)]
+        ])
+        try:
+            await update.message.reply_text(
+                "❌ Este grupo não possui um aluguel ativo!\nPara que o bot funcione aqui, é preciso assinar o plano:",
+                reply_markup=teclado_assinar
+            )
+        except Exception:
+            pass
+        raise SystemExit # Interrompe a execução do comando no grupo
 
 def registrar_aluguel(app):
     app.add_handler(CallbackQueryHandler(painel_aluguel, pattern="^menu_aluguel$"))
@@ -306,5 +341,4 @@ def registrar_aluguel(app):
     app.add_handler(CallbackQueryHandler(gerar_pix_aluguel, pattern="^aluguel_gerar_pix$"))
     app.add_handler(CallbackQueryHandler(verificar_status_pagamento, pattern="^checar_pagamento_"))
     
-    from telegram.ext import MessageHandler, filters
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, verificar_entrada_grupo))
