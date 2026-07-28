@@ -123,7 +123,7 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
             upsert=True
         )
         
-        link_privado = f"[https://t.me/](https://t.me/){context.bot.username}?start=aluguel"
+        link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
         teclado_assinar = InlineKeyboardMarkup([
             [InlineKeyboardButton("💳 Assinar Plano no Privado", url=link_privado)]
         ])
@@ -233,7 +233,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
         [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
-        [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"[https://t.me/](https://t.me/){context.bot.username}?startgroup=true")]
+        [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
 
     if DONO_ID and str(user.id) == str(DONO_ID):
@@ -448,7 +448,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🛡️ Ver todos comandos de ADM", callback_data="menu_adm")],
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
             [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
-            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"[https://t.me/](https://t.me/){context.bot.username}?startgroup=true")]
+            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
         ]
         if DONO_ID and str(user_id) == str(DONO_ID):
             botoes_voltar.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
