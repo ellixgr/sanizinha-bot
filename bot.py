@@ -41,7 +41,6 @@ async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAU
         await update.message.reply_text("⚠️ Este comando só pode ser usado dentro de grupos ou canais!")
         return
 
-    # Valida se quem mandou é o dono do bot
     if not DONO_ID or str(user.id) != str(DONO_ID):
         await update.message.reply_text("❌ Apenas o dono do bot pode utilizar este comando.")
         return
@@ -113,7 +112,7 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
             upsert=True
         )
         
-        link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
+        link_privado = f"[https://t.me/](https://t.me/){context.bot.username}?start=aluguel"
         teclado_assinar = InlineKeyboardMarkup([
             [InlineKeyboardButton("💳 Assinar Plano no Privado", url=link_privado)]
         ])
@@ -221,23 +220,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not valido:
             return
 
-    # Pegando dados de Hora e Data atuais (fuso horário local aproximado)
     agora = datetime.now()
     hora_atual = agora.strftime("%H:%M:%S")
     data_atual = agora.strftime("%d/%m/%Y")
 
-    # Montando o texto visual com o layout solicitado
+    # Usando bloco de código monospaced (```) para alinhar perfeitamente em qualquer tela
     texto_menu = (
-        f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+        "```text\n"
+        "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
         f"✰┃👤 : {user.first_name}\n"
         f"✰┃🆔 : {user.id}\n"
         f"✰┃🕘 : {hora_atual}\n"
         f"✰┃☀️ : {data_atual}\n"
-        f"✰┃ 🤖 𝗕𝗢𝗧🏌️‍♀️\n"
-        f"✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢💞 ®\n\n"
-        f"┌──────────┐\n"
-        f"   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
-        f"└──────────┘"
+        "✰┃ 🤖 𝗕𝗢𝗧\n"
+        "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
+        "┌──────────┐\n"
+        "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
+        "└──────────┘\n"
+        "```"
     )
 
     botoes = [
@@ -376,16 +376,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_atual = agora.strftime("%d/%m/%Y")
 
         texto_ajuda = (
-            f"✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+            "```text\n"
+            "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
             f"✰┃👤 : {update.effective_user.first_name}\n"
             f"✰┃🆔 : {update.effective_user.id}\n"
             f"✰┃🕘 : {hora_atual}\n"
             f"✰┃☀️ : {data_atual}\n"
-            f"✰┃ 🤖 𝗕𝗢𝗧🏌️‍♀️\n"
-            f"✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢💞 ®\n\n"
-            f"┌──────────┐\n"
-            f"   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
-            f"└──────────┘"
+            "✰┃ 🤖 𝗕𝗢𝗧\n"
+            "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
+            "┌──────────┐\n"
+            "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
+            "└──────────┘\n"
+            "```"
         )
         
         botoes_voltar = [
