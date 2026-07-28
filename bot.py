@@ -1,7 +1,9 @@
 import os
 import logging
 import threading
+import time
 from flask import Flask
+from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler
 
@@ -24,6 +26,81 @@ def home():
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app_web.run(host="0.0.0.0", port=port)
+
+def get_db():
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000, tlsAllowInvalidCertificates=True)
+    return client["sanizinhabot_db"]
+
+# --- FUNÇÃO DE VALIDAÇÃO DE LICENÇA DO GRUPO ---
+async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    chat = update.effective_chat
+    user = update.effective_user
+    
+    if not chat or chat.type == "private":
+        return True
+
+    # Se for o dono do bot, libera automático
+    if DONO_ID and user and str(user.id) == str(DONO_ID):
+        return True
+
+    db = get_db()
+    agora = time.time()
+
+    # Verifica se o grupo está registrado em alguma licença ativa e válida de algum usuário
+    licenca = db["licencas_aluguel"].find_one({
+        "chat_id": chat.id,
+        "ativo": True,
+        "expira_em": {"$gt": agora}
+    })
+
+    # Alternativa: se a licença for salva por usuário, checa se há pelo menos uma licença válida no bot ou ligada ao criador
+    if not licenca:
+        # Verifica se o bot tem qualquer licença global ativa associada ao grupo
+        licenca_geral = db["licencas_aluguel"].find_one({
+            "ativo": True,
+            "expira_em": {"$gt": agora}
+        })
+        # Se quiser travar estritamente pelo chat_id vinculado ao pagamento:
+        chat_registrado = db["grupos_autorizados"].find_one({"chat_id": chat.id, "expira_em": {"$gt": agora}})
+        if chat_registrado:
+            return True
+        
+        # Sistema de controle de avisos (Máximo 5 avisos, 1 minuto de intervalo)
+        controle_aviso = db["avisos_grupos_piratas"].find_one({"chat_id": chat.id}) or {"avisos": 0, "ultimo_aviso": 0}
+        
+        if agora - controle_aviso.get("ultimo_aviso", 0) > 60: # Intervalo de 1 minuto
+            novos_avisos = controle_aviso.get("avisos", 0) + 1
+            db["avisos_grupos_piratas"].update_one(
+                {"chat_id": chat.id},
+                {"$set": {"avisos": novos_avisos, "ultimo_aviso": agora}},
+                upsert=True
+            )
+            
+            link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
+            teclado_assinar = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💳 Assinar Plano no Privado", url=link_privado)]
+            ])
+            
+            try:
+                if novos_avisos >= 5:
+                    await chat.send_message(
+                        "🚨 **Limite de Avisos Atingidos!**\nEste grupo não possui aluguel ativo e os 5 avisos esgotaram. O bot está se retirando do grupo.",
+                        parse_mode="Markdown"
+                    )
+                    await context.bot.leave_chat(chat.id)
+                    db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
+                else:
+                    await chat.send_message(
+                        f"⚠️ **Aviso ({novos_avisos}/5):** Este grupo não possui um aluguel ativo!\nPara o bot funcionar aqui, o responsável precisa assinar o plano:",
+                        reply_markup=teclado_assinar,
+                        parse_mode="Markdown"
+                    )
+            except Exception:
+                pass
+                
+        return False
+
+    return True
 
 async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
@@ -48,6 +125,12 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
     user = update.effective_user
     if not chat or not user:
         return
+
+    # Bloqueia grupos sem licença antes de processar qualquer coisa
+    if chat.type in ["group", "supergroup"]:
+        valido = await verificar_licenca_grupo(update, context)
+        if not valido:
+            raise SystemExit # Interrompe qualquer execução posterior no grupo pirata
 
     message = update.message
     if not message:
@@ -86,9 +169,7 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
         tipo_incremento["stickers"] = 1
 
     try:
-        from pymongo import MongoClient
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000, tlsAllowInvalidCertificates=True)
-        db = client["sanizinhabot_db"]
+        db = get_db()
         db["mensagens_usuarios"].update_one(
             {"chat_id": chat.id, "user_id": user.id},
             {"$inc": tipo_incremento},
@@ -100,6 +181,11 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
+
+    if chat.type in ["group", "supergroup"]:
+        valido = await verificar_licenca_grupo(update, context)
+        if not valido:
+            return
 
     botoes = [
         [InlineKeyboardButton("📜 Ver todos comandos de membros", callback_data="menu_membros")],
@@ -131,7 +217,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
+    chat = query.message.chat
     
+    if chat and chat.type in ["group", "supergroup"]:
+        db = get_db()
+        agora = time.time()
+        chat_registrado = db["grupos_autorizados"].find_one({"chat_id": chat.id, "expira_em": {"$gt": agora}})
+        if not chat_registrado and (not DONO_ID or str(user_id) != str(DONO_ID)):
+            await query.answer("❌ Este grupo não possui aluguel ativo!", show_alert=True)
+            return
+
     if query.data == "menu_membros":
         await query.answer()
         texto_membros = (
@@ -283,7 +378,6 @@ def main():
     registrar_mutar(app)
     registrar_deploy(app)
     
-    # Registra o sistema de aluguel modularizado
     registrar_aluguel(app)
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
