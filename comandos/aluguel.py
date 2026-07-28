@@ -185,9 +185,10 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔄 *Após pagar no app do banco, clique no botão abaixo para verificar.*"
             )
             
-            # Botão nativo compatível com Telegram e Telegram X para copiar o código Pix
+
+            # Botão nativo correto usando o objeto CopyTextButton
             teclado_status = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📋 Copiar Código Pix", copy_text=qr_data)],
+                [InlineKeyboardButton("📋 Copiar Código Pix", copy_text=CopyTextButton(qr_data))],
                 [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{payment_id}")],
                 [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="menu_aluguel")]
             ])
