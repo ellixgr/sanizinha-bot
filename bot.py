@@ -217,25 +217,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data_atual = agora.strftime("%d/%m/%Y")
 
     texto_menu = (
-        "```text\n"
         "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
         f"✰┃👤 : {user.first_name}\n"
-        f"✰┃🆔 : {user.id}\n"
+        f"✰┃🆔 : `{user.id}`\n"
         f"✰┃🕘 : {hora_atual}\n"
         f"✰┃☀️ : {data_atual}\n"
-        "✰┃ 🤖 𝗕𝗢𝗧\n"
-        "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
+        "✰┃ 🤖 **BOT**\n"
+        "✪/ 🌬️ **Sanizinha** ®\n\n"
         "┌──────────┐\n"
-        "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
-        "└──────────┘\n"
-        "```"
+        "   ≡  **M E N U S**  ≡\n"
+        "└──────────┘"
     )
 
     botoes = [
         [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
         [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
-        [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
+        [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"[https://t.me/](https://t.me/){context.bot.username}?startgroup=true")]
     ]
 
     if DONO_ID and str(user.id) == str(DONO_ID):
@@ -433,18 +431,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data_atual = agora.strftime("%d/%m/%Y")
 
         texto_ajuda = (
-            "```text\n"
             "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
             f"✰┃👤 : {update.effective_user.first_name}\n"
-            f"✰┃🆔 : {update.effective_user.id}\n"
+            f"✰┃🆔 : `{update.effective_user.id}`\n"
             f"✰┃🕘 : {hora_atual}\n"
             f"✰┃☀️ : {data_atual}\n"
-            "✰┃ 🤖 𝗕𝗢𝗧\n"
-            "✪/ 🌬️𝘚𝘢𝘯𝘪𝘻𝘪𝘯𝘩𝘢 ®\n\n"
+            "✰┃ 🤖 **BOT**\n"
+            "✪/ 🌬️ **Sanizinha** ®\n\n"
             "┌──────────┐\n"
-            "   ≡  𝗠 𝗘 𝗡 𝗨 𝗦  ≡\n"
-            "└──────────┘\n"
-            "```"
+            "   ≡  **M E N U S**  ≡\n"
+            "└──────────┘"
         )
         
         botoes_voltar = [
@@ -452,7 +448,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🛡️ Ver todos comandos de ADM", callback_data="menu_adm")],
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
             [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
-            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
+            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"[https://t.me/](https://t.me/){context.bot.username}?startgroup=true")]
         ]
         if DONO_ID and str(user_id) == str(DONO_ID):
             botoes_voltar.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
