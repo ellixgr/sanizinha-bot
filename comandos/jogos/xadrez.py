@@ -9,7 +9,7 @@ db = MongoClient(MONGO_URI)["bot_database"]
 xadrez_db = db["jogo_xadrez"]
 
 # ==============================================
-# 🎲 FUNÇÕES AUXILIARES E REGRAS DO XADREZ OFICIAL
+# 🎲 FUNÇÕES AUXILIARES
 # ==============================================
 def criar_tabuleiro():
     return [
@@ -158,7 +158,7 @@ def tab_para_texto(tab):
     return "|".join("".join(l) for l in tab)
 
 # ==============================================
-# 🎲 GERADOR DE BOTÕES COM DESTAQUE
+# 🎲 GERADOR DE BOTÕES
 # ==============================================
 def gerar_botoes_tabuleiro(tab, selecionado=None, destinos_validos=None):
     botoes = []
@@ -179,11 +179,11 @@ def gerar_botoes_tabuleiro(tab, selecionado=None, destinos_validos=None):
     return botoes
 
 # ==============================================
-# 🎮 SISTEMA CORRIGIDO
+# 🎮 SISTEMA — REMOVIDO O HANDLER CONFLITANTE!
 # ==============================================
 def setup_xadrez(app: Application):
     app.add_handler(CommandHandler("xadrez", cmd_xadrez))
-    app.add_handler(CallbackQueryHandler(menu_xadrez_handler, pattern="^jogo_xadrez$"))
+    # 🚫 LINHA DO CONFLITO APAGADA — AGORA É TRATADO DIRETO NO BOT.PY
     app.add_handler(CallbackQueryHandler(tratar_botoes_xadrez, pattern="^x_"))
     app.add_handler(CallbackQueryHandler(jogada_xadrez, pattern="^xpos_"))
 
@@ -379,41 +379,29 @@ async def jogada_xadrez(update: Update, context):
     cor_turno = "branca" if uid == estado["brancas"] else "preta"
     selecionado = estado.get("peca_selecionada")
 
-    # ======================================
-    # PASSO 1: SELECIONAR PEÇA — BUG CORRIGIDO AQUI
-    # ======================================
     if not selecionado:
         peca_clicada = tab[l][c]
         cor_da_peca = cor_peca(peca_clicada)
-
-        # AGORA VERIFICA DIREITO: peça existe E é da sua cor
         if peca_clicada == " ":
             return await query.answer("Escolha uma peça, não uma casa vazia!", show_alert=True)
         if cor_da_peca != cor_turno:
             return await query.answer("Essa peça não é sua! Escolha uma peça sua.", show_alert=True)
 
-        # Pega movimentos válidos
         roque_usa = estado["roque_branco"] if cor_turno == "branca" else estado["roque_preto"]
         destinos = listar_destinos_validos(tab, l, c, cor_turno, roque_usa, estado["en_passant"])
-
         if not destinos:
             return await query.answer("Essa peça não tem onde ir agora!", show_alert=True)
 
-        # Salva seleção e mostra destinos
         xadrez_db.update_one({"chat_id": chat_id}, {"$set":{"peca_selecionada": (l,c)}})
         await atualizar_tabuleiro_xadrez(query, tab, "✅ Peça selecionada! Clique em um destino para mover", selecionado=(l,c), destinos=destinos)
         return
 
-    # ======================================
-    # PASSO 2: MOVER PARA O DESTINO
-    # ======================================
     l1, c1 = selecionado
     if l == l1 and c == c1:
         xadrez_db.update_one({"chat_id": chat_id}, {"$set":{"peca_selecionada": None}})
         await atualizar_tabuleiro_xadrez(query, tab, "Seleção cancelada — escolha outra peça")
         return
 
-    # Valida movimento
     roque_usa = estado["roque_branco"] if cor_turno == "branca" else estado["roque_preto"]
     if not movimento_valido(tab, l1, c1, l, c, roque_usa, estado["en_passant"]):
         await query.answer("❌ Movimento inválido!", show_alert=True)
@@ -426,7 +414,6 @@ async def jogada_xadrez(update: Update, context):
         await atualizar_tabuleiro_xadrez(query, tab, "Escolha outro movimento", selecionado=(l1,c1), destinos=destinos)
         return
 
-    # EXECUTA MOVIMENTO
     peca = tab[l1][c1]
     capturou = tab[l][c] != " "
     tab[l][c] = peca
@@ -435,7 +422,6 @@ async def jogada_xadrez(update: Update, context):
     novo_roque_b = estado["roque_branco"]
     novo_roque_p = estado["roque_preto"]
 
-    # Regras especiais
     if peca.lower() == "p" and abs(l-l1) == 2:
         novo_en_passant = ((l1+l)//2, c)
     if peca.lower() == "p" and estado["en_passant"] == (l,c):
@@ -454,20 +440,17 @@ async def jogada_xadrez(update: Update, context):
     if peca in ("♔","♖"): novo_roque_b = False
     if peca in ("♚","♜"): novo_roque_p = False
 
-    # Contadores
     novo_contador = 0 if capturou or peca.lower()=="p" else estado["contador_50"]+1
     historico = estado["historico"] + [tab_para_texto(tab)]
     prox_cor = "preta" if cor_turno=="branca" else "branca"
     prox_uid = estado["pretas"] if cor_turno=="branca" else estado["brancas"]
 
-    # Fim de jogo
     fim = verificar_fim_jogo(tab, prox_cor, novo_roque_b, novo_roque_p, novo_contador, historico)
     if fim:
         xadrez_db.delete_one({"chat_id": chat_id})
         await finalizar_xadrez(query, tab, fim, estado)
         return
 
-    # JOGADA DA IA — CORRIGIDA E SIMPLES
     if estado["modo"] == "ia" and prox_uid == "IA":
         movimentos_validos = []
         for la in range(8):
@@ -491,7 +474,6 @@ async def jogada_xadrez(update: Update, context):
             await atualizar_tabuleiro_xadrez(query, tab, "Sua vez! Clique em uma peça branca")
             return
 
-    # SALVA E ATUALIZA
     xadrez_db.update_one({"chat_id": chat_id}, {"$set":{
         "tabuleiro":tab,"turno":prox_uid,"roque_branco":novo_roque_b,"roque_preto":novo_roque_p,
         "en_passant":novo_en_passant,"contador_50":novo_contador,"historico":historico,"peca_selecionada":None
