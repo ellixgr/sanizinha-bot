@@ -1,5 +1,6 @@
 import time
 import re
+import asyncio
 from datetime import timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, ChatMemberHandler
@@ -20,25 +21,26 @@ def get_db():
     return client["sanizinhabot_db"]
 
 def obter_configs(chat_id: int):
+    padrao = {
+        "antilink": True,
+        "antimencao": True,
+        "antifoto": False,
+        "antifigu": False,
+        "antitravas": True,
+        "antiflood": True
+    }
     try:
         db = get_db()
         doc = db["configs_protecao"].find_one({"chat_id": chat_id})
         if doc and "configs" in doc:
             cfg = doc["configs"]
-            if "antimencao" not in cfg:
-                cfg["antimencao"] = False
+            # Garante chaves novas caso o documento seja antigo
+            for k, v in padrao.items():
+                if k not in cfg:
+                    cfg[k] = v
             return cfg
     except Exception:
         pass
-    
-    padrao = {
-        "antilink": False,
-        "antimencao": False,
-        "antifoto": False,
-        "antifigu": False,
-        "antitravas": False,
-        "antiflood": True
-    }
     return padrao
 
 def salvar_configs(chat_id: int, cfg: dict):
@@ -53,19 +55,22 @@ def salvar_configs(chat_id: int, cfg: dict):
         pass
 
 def obter_punicao(chat_id: int):
-    try:
-        db = get_db()
-        doc = db["configs_protecao"].find_one({"chat_id": chat_id})
-        if doc and "punicao" in doc:
-            return doc["punicao"]
-    except Exception:
-        pass
-        
     padrao = {
         "acao": "aviso_ban",
         "apagar_msg": True,
         "tempo_mute": 1
     }
+    try:
+        db = get_db()
+        doc = db["configs_protecao"].find_one({"chat_id": chat_id})
+        if doc and "punicao" in doc:
+            p = doc["punicao"]
+            for k, v in padrao.items():
+                if k not in p:
+                    p[k] = v
+            return p
+    except Exception:
+        pass
     return padrao
 
 def salvar_punicao(chat_id: int, punicao: dict):
@@ -91,11 +96,11 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: 
     return False
 
 def gerar_teclado_protecoes(cfg):
-    s_link = "🟢 Ligado" if cfg.get("antilink", False) else "🔴 Desligado"
-    s_mencao = "🟢 Ligado" if cfg.get("antimencao", False) else "🔴 Desligado"
+    s_link = "🟢 Ligado" if cfg.get("antilink", True) else "🔴 Desligado"
+    s_mencao = "🟢 Ligado" if cfg.get("antimencao", True) else "🔴 Desligado"
     s_foto = "🟢 Ligado" if cfg.get("antifoto", False) else "🔴 Desligado"
     s_figu = "🟢 Ligado" if cfg.get("antifigu", False) else "🔴 Desligado"
-    s_trav = "🟢 Ligado" if cfg.get("antitravas", False) else "🔴 Desligado"
+    s_trav = "🟢 Ligado" if cfg.get("antitravas", True) else "🔴 Desligado"
     s_flood = "🟢 Ligado" if cfg.get("antiflood", True) else "🔴 Desligado"
 
     texto = "🛡️ **PAINEL DE PROTEÇÕES DO GRUPO**"
@@ -262,7 +267,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not chat or not user or chat.type == "private" or not message:
         return
 
-    # SE FOR ADMINISTRADOR OU DONO, O BOT NÃO PUNE NADA E LIBERA TUDO
+    # Se for admin ou dono do chat, ignora
     if await is_admin(update, context, user.id, chat.id):
         return
 
@@ -289,21 +294,29 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             motivo_violacao = "flood de mensagens/comandos"
 
     if not eh_flood:
-        chat_username = chat.username or ""
-        chat_invite_link = chat.invite_link or ""
+        chat_username = (chat.username or "").lower()
+        chat_invite_link = (chat.invite_link or "").lower()
 
-        # 2. Anti-Link
-        if cfg.get("antilink", False):
-            ignorar_chatbot = f"@{context.bot.username}" in texto_conteudo and message.text and message.text.startswith("/start")
+        # 2. Anti-Link (Regex ultra abrangente atualizado)
+        if cfg.get("antilink", True):
+            ignorar_chatbot = f"@{context.bot.username}".lower() in texto_conteudo.lower() and message.text and message.text.startswith("/start")
             if not ignorar_chatbot:
-                padrao_link = r"(https?://\S+|www\.\S+|t\.me/\S+|chat\.whatsapp\.com/\S+|[a-zA-Z0-9][-a-zA-Z0-9]*\.(com|net|org|br|io|gov|edu|me|xyz|ru|tk|ml|ga|cf|gq)\b\S*)"
+                padrao_link = r"(https?://\S+|www\.\S+|t\.me/\S+|telegram\.me/\S+|chat\.whatsapp\.com/\S+|[a-zA-Z0-9][-a-zA-Z0-9]*\.(com|net|org|br|io|gov|edu|me|xyz|ru|tk|ml|ga|cf|gq|gg|to|cc|co)\b\S*)"
                 links_encontrados = re.findall(padrao_link, texto_conteudo, re.IGNORECASE)
                 
-                if links_encontrados:
+                # Verifica também se há entidades de link nativas do Telegram (url ou text_link)
+                tem_link_entidade = False
+                if message.entities:
+                    for entidade in message.entities:
+                        if entidade.type in ["url", "text_link"]:
+                            tem_link_entidade = True
+                            break
+
+                if links_encontrados or tem_link_entidade:
                     link_proprio = False
                     for l in links_encontrados:
                         url_str = "".join(l) if isinstance(l, tuple) else l
-                        if (chat_username and chat_username.lower() in url_str.lower()) or (chat_invite_link and chat_invite_link.lower() in url_str.lower()):
+                        if (chat_username and chat_username in url_str.lower()) or (chat_invite_link and chat_invite_link in url_str.lower()):
                             link_proprio = True
                             break
                     
@@ -311,14 +324,16 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
                         violacao_detectada = True
                         motivo_violacao = "link proibido"
 
-        # 3. Anti-Menção
-        if not violacao_detectada and cfg.get("antimencao", False):
+        # 3. Anti-Menção / Mensagens Encaminhadas (Compatível com novas versões)
+        if not violacao_detectada and cfg.get("antimencao", True):
             eh_encaminhado_externo = False
-            if message.forward_origin:
-                origin = message.forward_origin
-                if hasattr(origin, "chat") and origin.chat and origin.chat.id != chat.id:
-                    eh_encaminhado_externo = True
-                elif not hasattr(origin, "chat"):
+            
+            # Checa se foi encaminhado de canal, chat ou usuário externo
+            if message.forward_origin or message.forward_date or message.forward_from or message.forward_from_chat:
+                if message.forward_from_chat:
+                    if message.forward_from_chat.id != chat.id:
+                        eh_encaminhado_externo = True
+                else:
                     eh_encaminhado_externo = True
 
             padrao_mencao_externa = r"(@[A-Za-z0-9_]{5,}|t\.me/[A-Za-z0-9_]+)"
@@ -327,7 +342,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             mencao_invalida = False
             if mencoes:
                 for m in mencoes:
-                    if chat_username and chat_username.lower() in m.lower():
+                    if chat_username and chat_username in m.lower():
                         continue
                     mencao_invalida = True
                     break
@@ -347,12 +362,12 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             motivo_violacao = "figurinha"
 
         # 6. Anti-Travas
-        if not violacao_detectada and cfg.get("antitravas", False) and len(texto_conteudo) > 600:
+        if not violacao_detectada and cfg.get("antitravas", True) and len(texto_conteudo) > 600:
             violacao_detectada = True
             motivo_violacao = "trava de caracteres / golpe em massa"
 
     if violacao_detectada:
-        if punicao["apagar_msg"]:
+        if punicao.get("apagar_msg", True):
             try:
                 await message.delete()
             except Exception:
@@ -371,10 +386,10 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"⚠️ {user.mention_html()}, você foi silenciado por **{punicao['tempo_mute']} minuto(s)** devido a flood!",
                 parse_mode="HTML"
             )
-            context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso)
+            context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso) if context.job_queue else asyncio.create_task(apagar_aviso_futuro_async(context, aviso))
             return
 
-        tipo_acao = punicao["acao"]
+        tipo_acao = punicao.get("acao", "aviso_ban")
 
         if tipo_acao == "remover":
             try:
@@ -383,7 +398,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"🚨 {user.mention_html()} foi banido por enviar {motivo_violacao}.",
                     parse_mode="HTML"
                 )
-                context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso)
+                context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso) if context.job_queue else asyncio.create_task(apagar_aviso_futuro_async(context, aviso))
             except Exception:
                 pass
 
@@ -395,11 +410,11 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"🔇 {user.mention_html()} foi silenciado por **{punicao['tempo_mute']} minuto(s)** por enviar {motivo_violacao}.",
                     parse_mode="HTML"
                 )
-                context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso)
+                context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso) if context.job_queue else asyncio.create_task(apagar_aviso_futuro_async(context, aviso))
             except Exception:
                 pass
 
-        else:
+        else: # aviso_ban (1º aviso, 2º ban)
             if chave_aviso not in REGISTRO_AVISADOS:
                 REGISTRO_AVISADOS[chave_aviso] = True
                 aviso = await chat.send_message(
@@ -407,7 +422,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"Este foi o primeiro e último aviso, próxima você vai de Vasco kkkk",
                     parse_mode="HTML"
                 )
-                context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso)
+                context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso) if context.job_queue else asyncio.create_task(apagar_aviso_futuro_async(context, aviso))
             else:
                 try:
                     await chat.ban_member(user.id)
@@ -415,13 +430,20 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
                         f"🚨 {user.mention_html()} foi de Vasco kkkk (Ignorou o aviso anterior e mandou {motivo_violacao} novamente).",
                         parse_mode="HTML"
                     )
-                    context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso)
+                    context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso) if context.job_queue else asyncio.create_task(apagar_aviso_futuro_async(context, aviso))
                 except Exception:
                     pass
 
 async def apagar_aviso_futuro(context):
     try:
         await context.job.data.delete()
+    except Exception:
+        pass
+
+async def apagar_aviso_futuro_async(context, mensagem):
+    await asyncio.sleep(8)
+    try:
+        await mensagem.delete()
     except Exception:
         pass
 
