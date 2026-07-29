@@ -94,6 +94,19 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: 
         pass
     return False
 
+async def obter_menção_admins(chat, context: ContextTypes.DEFAULT_TYPE) -> str:
+    try:
+        admins = await chat.get_administrators()
+        mencoes = []
+        for adm in admins:
+            if not adm.user.is_bot:
+                mencoes.append(adm.user.mention_html("adm"))
+        if mencoes:
+            return " ".join(mencoes)
+    except Exception:
+        pass
+    return "@adm"
+
 def gerar_teclado_protecoes(cfg):
     s_link = "🟢 Ligado" if cfg.get("antilink", True) else "🔴 Desligado"
     s_mencao = "🟢 Ligado" if cfg.get("antimencao", True) else "🔴 Desligado"
@@ -277,17 +290,19 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     motivo_violacao = ""
     eh_flood = False
 
-    # 1. Anti-Flood
+    # 1. Anti-Flood Otimizado (mensagens, comandos, figurinhas ou qualquer tipo de msg em curto espaço de tempo)
     if cfg.get("antiflood", True):
         agora = time.time()
         chave = (chat.id, user.id)
         if chave not in REGISTRO_FLOOD:
             REGISTRO_FLOOD[chave] = []
         
-        REGISTRO_FLOOD[chave] = [t for t in REGISTRO_FLOOD[chave] if agora - t < 5]
+        # Janela de 4 segundos para contagem de flood
+        REGISTRO_FLOOD[chave] = [t for t in REGISTRO_FLOOD[chave] if agora - t < 4]
         REGISTRO_FLOOD[chave].append(agora)
 
-        if len(REGISTRO_FLOOD[chave]) > 3:
+        # Se enviar mais de 4 mensagens/comandos/figurinhas em menos de 4 segundos
+        if len(REGISTRO_FLOOD[chave]) > 4:
             eh_flood = True
             violacao_detectada = True
             motivo_violacao = "flood de mensagens/comandos"
@@ -359,6 +374,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             motivo_violacao = "trava de caracteres"
 
     if violacao_detectada:
+        # Apaga a mensagem infratora APENAS se a opção estiver ativa no painel de punição
         if punicao.get("apagar_msg", True):
             try:
                 await message.delete()
@@ -367,6 +383,24 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         chave_aviso = (chat.id, user.id)
         tipo_acao = punicao.get("acao", "aviso_ban")
+
+        # Se for flood detectado, silencia obrigatoriamente por 2 minutos e marca todos os ADMs
+        if eh_flood:
+            try:
+                liberar_ate = timedelta(minutes=2)
+                await context.bot.restrict_chat_member(chat.id, user.id, permissions=False, until_date=liberar_ate)
+                
+                mencoes_admins = await obter_menção_admins(chat, context)
+                
+                aviso = await chat.send_message(
+                    f"⚡ {user.mention_html()} foi silenciado(a) por **2 minutos** por flood de mensagens/comandos/figurinhas!\n\n"
+                    f"Ativação de segurança para os administradores:\n{mencoes_admins}",
+                    parse_mode="HTML"
+                )
+                # O aviso do bot NUNCA é apagado automaticamente para manter o registro visível
+            except Exception:
+                pass
+            return
 
         if tipo_acao == "remover":
             try:
