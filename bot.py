@@ -6,10 +6,10 @@ from datetime import datetime, timezone, timedelta
 from flask import Flask
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler, ApplicationHandlerStop
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler
+
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 from comandos.menus import menu_membros_handler, menu_adm_handler
-
 from protecao.antiflod import executar_antiflod
 from protecao.status import obter_punicao, obter_mencao_admins_str
 
@@ -39,18 +39,6 @@ def get_db():
         _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1000, connectTimeoutMS=1000, maxPoolSize=50, tlsAllowInvalidCertificates=True)
     return _mongo_client["sanizinhabot_db"]
 
-async def eh_cliente_pago(user_id: int) -> bool:
-    if DONO_ID and str(user_id) == str(DONO_ID):
-        return True
-    try:
-        db = get_db()
-        agora = time.time()
-        cliente = db["clientes_pagos"].find_one({"user_id": user_id, "ativo": True, "expira_em": {"$gt": agora}})
-        return bool(cliente)
-    except Exception as e:
-        logger.error(f"Erro verifica assinatura: {e}")
-        return False
-
 async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -76,68 +64,7 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except: pass
     return False
 
-# ==============================================
-# ✅ INTERCEPTADOR CORRIGIDO: NÃO BLOQUEIA /START, NÃO BLOQUEIA NENHUM MENU
-# ==============================================
-async def interceptador_privado_assinatura(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    msg = update.message or update.effective_message
-    query = update.callback_query
-
-    if not chat or chat.type != "private":
-        return
-
-    uid = user.id
-    if await eh_cliente_pago(uid):
-        return
-
-    # --------------------------
-    # BLOQUEIA APENAS COMANDOS DIRETOS — NÃO TOCA NO /START
-    # --------------------------
-    if msg:
-        texto = msg.text.strip() if msg.text else ""
-        # LIBERA SEMPRE O /START
-        if texto == "/start" or texto.startswith("/start "):
-            return
-        # BLOQUEIA TODOS OS OUTROS COMANDOS/MENSAGENS
-        try: await msg.delete()
-        except: pass
-        await chat.send_message(
-            "⚠️ **Acesso Restrito!**\n\nComandos como /ping, /perfil, /play só funcionam no privado para assinantes.\n\nClique em **🤖 Alugar Bot** para contratar!",
-            parse_mode="Markdown"
-        )
-        raise ApplicationHandlerStop
-
-    # --------------------------
-    # LIBERA TODOS OS BOTÕES DE NAVEGAÇÃO — NENHUM MENU É BLOQUEADO
-    # --------------------------
-    if query:
-        dados = query.data
-
-        # ✅ TODOS OS MENUS, ALUGUEL E NAVEGAÇÃO LIBERADOS PARA TODOS
-        liberados = [
-            "menu_membros", "menu_adm", "menu_aluguel", "voltar_menu",
-            "ver_comandos", "voltar_principal_grupo", "menu_jogos_atalho",
-            "1_mes", "3_meses", "6_meses", "12_meses", "gerar_pix", "voltar_menu_aluguel"
-        ]
-        if dados in liberados:
-            return
-
-        # ✅ JOGOS: AVISA QUE SÓ FUNCIONAM EM GRUPO
-        if dados in ["jogo_velha","jogo_memoria","jogo_xadrez","jogo_dama"]:
-            await query.answer("🎮 Jogos só funcionam em grupos!", show_alert=True)
-            await query.message.reply_text("🎮 Inicie jogos apenas dentro de grupos!", parse_mode="Markdown")
-            raise ApplicationHandlerStop
-
-        # ❌ APENAS AÇÕES EXECUTÁVEIS SÃO BLOQUEADAS
-        await query.answer("🔒 Função exclusiva para assinantes!", show_alert=True)
-        await query.message.reply_text(
-            "🔒 Contrate o plano mensal para usar este recurso no privado.",
-            parse_mode="Markdown"
-        )
-        raise ApplicationHandlerStop
-
+# INTERCEPTADOR DE FLOOD — SÓ NOS GRUPOS
 async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -145,6 +72,7 @@ async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DE
     if not chat or not user or chat.type == "private" or not msg:
         return
     if await executar_antiflod(update,context,chat,user,msg,get_db,verificar_se_e_adm,obter_punicao,obter_mencao_admins_str):
+        from telegram.ext import ApplicationHandlerStop
         raise ApplicationHandlerStop
 
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -159,9 +87,7 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
         db["mensagens_usuarios"].update_one({"chat_id":chat.id,"user_id":user.id}, {"$inc":tipo}, upsert=True)
     except: pass
 
-# ==============================================
-# ✅ MENU INICIAL CORRIGIDO
-# ==============================================
+# MENU INICIAL LIVRE PARA TODOS
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -181,11 +107,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     botoes = [
         [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
         [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
-        [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")]
+        [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
+        [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
-
-    if await eh_cliente_pago(user.id):
-        botoes.append([InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")])
 
     if DONO_ID and str(user.id) == str(DONO_ID):
         botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
@@ -284,9 +208,6 @@ def main():
     threading.Thread(target=run_web, daemon=True).start()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
-    # ✅ ORDEM CORRETA: INTERCEPTADOR DEPOIS DO /START, ANTES DOS DEMAIS
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(TypeHandler(Update, interceptador_privado_assinatura), group=-2)
     app.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
@@ -321,9 +242,10 @@ def main():
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
 
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Sistema corrigido: /start e menus 100% liberados!")
+    logger.info("🤖 Sem bloqueios — tudo liberado!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
