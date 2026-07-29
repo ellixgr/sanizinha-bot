@@ -21,11 +21,10 @@ async def processar_callback_jogos(update, context):
     query = update.callback_query
     data = query.data
 
-    if data == "jogo_velha":
-        await query.answer("⭕ Jogo da Velha em desenvolvimento!", show_alert=True)
-    elif data == "jogo_memoria":
-        await query.answer("🧠 Jogo da Memória em desenvolvimento!", show_alert=True)
-    elif data == "jogo_xadrez":
-        await query.answer("♟️ Xadrez em desenvolvimento!", show_alert=True)
-    elif data == "jogo_dama":
-        await query.answer("🔴 Dama em desenvolvimento!", show_alert=True)
+    # Atalho para voltar para a central de jogos a partir de qualquer partida
+    if data == "menu_jogos_atalho":
+        await menu_jogos_handler(update, context)
+        return
+
+    # Removidos os alertas de "em desenvolvimento" pois os jogos agora estão ativos.
+    # Os arquivos de cada jogo (velha.py, memoria.py, etc.) vão capturar esses callbacks.
