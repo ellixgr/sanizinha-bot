@@ -9,6 +9,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 
+# Importações dos módulos de proteção para o interceptador global
+from protecao.antiflod import executar_antiflod
+from protecao.status import obter_punicao, verificar_se_e_adm as is_admin_protecao, obter_mencao_admins_str
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -101,6 +105,23 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return False
     
     return False
+
+# Interceptador Global de Proteções (Anti-Flood, Anti-Menção, etc.)
+async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    message = update.message or update.effective_message
+    
+    if not chat or not user or chat.type == "private" or not message:
+        return
+
+    # Executa o Anti-Flood para qualquer mensagem, mídia, arquivo ou comando
+    passou_flood = await executar_antiflod(
+        update, context, chat, user, message, 
+        get_db, is_admin_protecao, obter_punicao, obter_mencao_admins_str
+    )
+    if passou_flood:
+        return  # Se o anti-flood puniu/removeu, interrompe o fluxo para esta mensagem
 
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -383,6 +404,9 @@ def main():
     
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
+    # Interceptador global de proteções (Anti-Flood, Anti-Menção) rodando no grupo 1
+    app.add_handler(MessageHandler(filters.ALL & ~filters.ChatType.PRIVATE, interceptador_geral_protecoes), group=1)
+
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
     from comandos.ping import registrar_ping
@@ -394,7 +418,7 @@ def main():
     from comandos.promover import registrar_promover
     from comandos.marcar import registrar_marcar, capturar_membros_handler, remover_membro_saiu_handler
     from comandos.citar import registrar_citar
-    from protecao.status import registrar_protecoes  # <--- IMPORTADO DA PASTA CORRETA
+    from protecao.status import registrar_protecoes
     from comandos.play import setup_play
     from comandos.deploy import registrar_deploy
     from comandos.rank import registrar_rank
@@ -416,7 +440,7 @@ def main():
     registrar_rank(app)
     registrar_marcar(app)
     registrar_citar(app)
-    registrar_protecoes(app)  # <--- REGISTRA O STATUS E OS ANTIS AUTOMATICAMENTE
+    registrar_protecoes(app)
     registrar_comandos_bv(app)
     registrar_ping(app)
     registrar_id(app)
