@@ -1,13 +1,12 @@
 import os
+import tempfile
+import pathlib
+import logging
 import yt_dlp
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes
-)
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, filters, ContextTypes
+
+logger = logging.getLogger(__name__)
 
 def setup_play(app: Application):
     app.add_handler(CommandHandler(["baixar", "dl", "play"], play_pesquisa, filters=~filters.ChatType.PRIVATE))
@@ -19,13 +18,12 @@ async def play_pesquisa(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not context.args:
-        await message.reply_text("⚠️ Envie o comando junto com o nome ou link.\nExemplo: `/play travis scott`")
+        await message.reply_text("⚠️ Envie o comando junto com o nome ou link.\nExemplo: `/play travis scott`", parse_mode="Markdown")
         return
 
     query = " ".join(context.args)
     status_msg = await message.reply_text("🔍 Procurando...")
 
-    # Opções atualizadas para evitar bloqueios e detecção de bot do YouTube
     ydl_opts = {
         'format': 'best',
         'noplaylist': True,
@@ -36,6 +34,8 @@ async def play_pesquisa(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
         },
         'socket_timeout': 30,
+        'quiet': True,
+        'no_warnings': True,
     }
 
     try:
@@ -106,42 +106,52 @@ async def baixar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
+    # Configurações do yt-dlp usando diretório temporário (sem cookies e sem pastas fixas)
     if tipo == "dl_video":
         ydl_opts = {
-            'format': 'best',
-            'outtmpl': 'downloads/%(id)s.%(ext)s',
+            'format': 'best/bestvideo+bestaudio',
             'noplaylist': True,
             'extractor_args': {
                 'youtube': {
                     'player_client': ['mweb', 'android', 'web'],
                 }
             },
+            'outtmpl': os.path.join(tempfile.gettempdir(), f'video_{os.getpid()}_%(id)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
         }
     else:
         ydl_opts = {
             'format': 'bestaudio/best',
-            'outtmpl': 'downloads/%(id)s.%(ext)s',
             'noplaylist': True,
             'extractor_args': {
                 'youtube': {
                     'player_client': ['mweb', 'android', 'web'],
                 }
             },
+            'extract_audio': True,
+            'audioformat': 'mp3',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
+            'outtmpl': os.path.join(tempfile.gettempdir(), f'audio_{os.getpid()}_%(id)s.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
         }
 
-    caminho_arquivo = None
+    output_path = None
     try:
-        os.makedirs("downloads", exist_ok=True)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            caminho_arquivo = ydl.prepare_filename(info)
+            info = ydl.extract_info(url, download=False)
+            
+            # Prepara o caminho do arquivo de saída com a extensão correta
+            output_path = pathlib.Path(ydl.prepare_filename(info))
             if tipo == "dl_audio":
-                caminho_arquivo = os.path.splitext(caminho_arquivo)[0] + ".mp3"
+                output_path = output_path.with_suffix('.mp3')
+
+            ydl.download([url])
 
         try:
             if query.message.caption is not None:
@@ -154,7 +164,7 @@ async def baixar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mention = query.from_user.mention_html()
 
         if tipo == "dl_audio":
-            with open(caminho_arquivo, 'rb') as audio_file:
+            with open(output_path, 'rb') as audio_file:
                 await context.bot.send_audio(
                     chat_id=query.message.chat_id,
                     audio=audio_file,
@@ -162,7 +172,7 @@ async def baixar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML"
                 )
         else:
-            with open(caminho_arquivo, 'rb') as video_file:
+            with open(output_path, 'rb') as video_file:
                 await context.bot.send_video(
                     chat_id=query.message.chat_id,
                     video=video_file,
@@ -183,8 +193,9 @@ async def baixar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(query.message.chat_id, erro_msg)
     
     finally:
-        if caminho_arquivo and os.path.exists(caminho_arquivo):
+        # Limpeza automática do arquivo temporário
+        if output_path and os.path.exists(output_path):
             try:
-                os.remove(caminho_arquivo)
+                os.unlink(output_path)
             except Exception:
                 pass
