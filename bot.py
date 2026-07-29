@@ -49,6 +49,27 @@ def get_db():
         )
     return _mongo_client["sanizinhabot_db"]
 
+# ==============================================
+# ✅ NOVA FUNÇÃO: VERIFICA SE USUÁRIO É CLIENTE PAGO
+# ==============================================
+async def eh_cliente_pago(user_id: int) -> bool:
+    """Verifica no MongoDB se o usuário tem assinatura ativa ou é o Dono"""
+    # Dono sempre tem acesso total
+    if DONO_ID and str(user_id) == str(DONO_ID):
+        return True
+    
+    try:
+        db = get_db()
+        agora = time.time()
+        # Busca na coleção de clientes se tem plano ativo
+        cliente = db["clientes_pagos"].find_one(
+            {"user_id": user_id, "ativo": True, "expira_em": {"$gt": agora}}
+        )
+        return bool(cliente)
+    except Exception as e:
+        logger.error(f"Erro ao verificar assinatura: {e}")
+        return False
+
 async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -106,7 +127,70 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     return False
 
-# INTERCEPTADOR GLOBAL DE PROTEÇÕES (CORRIGIDO)
+# ==============================================
+# ✅ NOVO INTERCEPTADOR: BLOQUEIA COMANDOS NO PRIVADO PARA NÃO CLIENTES
+# ==============================================
+async def interceptador_privado_assinatura(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    message = update.message or update.effective_message
+    query = update.callback_query
+
+    # Se NÃO for chat privado → ignora, deixa funcionar normalmente
+    if not chat or chat.type != "private":
+        return
+
+    user_id = user.id
+
+    # Se for DONO ou CLIENTE PAGO → libera tudo
+    if await eh_cliente_pago(user_id):
+        return
+
+    # --------------------------
+    # BLOQUEIA MENSAGENS/COMANDOS NO PRIVADO
+    # --------------------------
+    if message:
+        # Ignora o /start que é liberado para todos
+        if message.text and message.text.strip() == "/start":
+            return
+        
+        # Apaga mensagem e avisa
+        try: await message.delete()
+        except: pass
+        await update.effective_chat.send_message(
+            "⚠️ **Acesso Restrito!**\n\n"
+            "Para usar comandos, jogos, baixar mídias e outras funções no privado, "
+            "é necessário contratar o plano mensal.\n\n"
+            "Clique em **🤖 Alugar Bot** no menu principal para saber mais!",
+            parse_mode="Markdown"
+        )
+        raise ApplicationHandlerStop
+
+    # --------------------------
+    # BLOQUEIA BOTÕES DE AÇÃO NO PRIVADO (Mantém apenas visualização dos menus)
+    # --------------------------
+    if query:
+        dados = query.data
+
+        # LIBERA APENAS NAVEGAÇÃO BÁSICA (ver menus, voltar)
+        liberados = [
+            "menu_membros", "menu_adm", "menu_aluguel", "voltar_menu", 
+            "ver_comandos", "voltar_principal_grupo"
+        ]
+        if dados in liberados:
+            return
+
+        # TUDO O RESTO É BLOQUEADO: ping, perfil, jogos, play, figurinhas etc.
+        await query.answer("⚠️ Função exclusiva para assinantes!", show_alert=True)
+        await query.message.reply_text(
+            "🔒 **Função Bloqueada**\n\n"
+            "Este recurso só está disponível para quem contratar o plano mensal do bot.\n\n"
+            "Acesse o menu e clique em **🤖 Alugar Bot** para liberar tudo!",
+            parse_mode="Markdown"
+        )
+        raise ApplicationHandlerStop
+
+# INTERCEPTADOR GLOBAL DE PROTEÇÕES (FLOOD) — SÓ NOS GRUPOS
 async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -120,7 +204,6 @@ async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DE
         get_db, verificar_se_e_adm, obter_punicao, obter_mencao_admins_str
     )
     if passou_flood:
-        # INTERROMPE TOTALMENTE O COMANDO/MENSAGEM SE FOR FLOOD
         raise ApplicationHandlerStop
 
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -404,7 +487,12 @@ def main():
     
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
-    # INTERCEPTADOR DE FLOOD → PRIORIDADE MÁXIMA (group=-1)
+    # ==============================================
+    # ✅ PRIORIDADE MÁXIMA: VERIFICA ASSINATURA NO PRIVADO ANTES DE TUDO
+    # ==============================================
+    app.add_handler(TypeHandler(Update, interceptador_privado_assinatura), group=-2)
+
+    # INTERCEPTADOR DE FLOOD → PRIORIDADE -1 (SÓ NOS GRUPOS)
     app.add_handler(MessageHandler(
         (filters.TEXT | filters.COMMAND | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Sticker.ALL) & ~filters.ChatType.PRIVATE,
         interceptador_geral_protecoes
@@ -463,7 +551,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Bot rodando com alta performance e módulos separados!")
+    logger.info("🤖 Bot rodando com sistema de assinatura e proteções ativas!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
