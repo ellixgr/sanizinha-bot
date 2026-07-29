@@ -32,7 +32,6 @@ def run_web():
     port = int(os.environ.get("PORT", 10000))
     app_web.run(host="0.0.0.0", port=port)
 
-# Conexão otimizada e reaproveitável com MongoDB para acelerar queries
 _mongo_client = None
 def get_db():
     global _mongo_client
@@ -46,7 +45,6 @@ def get_db():
         )
     return _mongo_client["sanizinhabot_db"]
 
-# --- COMANDO /lw PARA O DONO REGISTRAR O GRUPO COMO ALUGADO ---
 async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -86,70 +84,6 @@ async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAU
         parse_mode="Markdown"
     )
 
-# --- FUNÇÃO DE VALIDAÇÃO DE LICENÇA DO GRUPO ---
-async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    chat = update.effective_chat
-    user = update.effective_user
-    
-    if not chat or chat.type == "private":
-        return True
-
-    if DONO_ID and user and str(user.id) == str(DONO_ID):
-        return True
-
-    db = get_db()
-    agora = time.time()
-
-    chat_registrado = db["grupos_autorizados"].find_one({
-        "chat_id": chat.id,
-        "ativo": True,
-        "expira_em": {"$gt": agora}
-    }, {"_id": 1})
-    if chat_registrado:
-        return True
-
-    licenca = db["licencas_aluguel"].find_one({
-        "chat_id": chat.id,
-        "ativo": True,
-        "expira_em": {"$gt": agora}
-    }, {"_id": 1})
-    if licenca:
-        return True
-
-    controle_aviso = db["avisos_grupos_piratas"].find_one({"chat_id": chat.id}) or {"avisos": 0, "ultimo_aviso": 0}
-    
-    if agora - controle_aviso.get("ultimo_aviso", 0) > 60:
-        novos_avisos = controle_aviso.get("avisos", 0) + 1
-        db["avisos_grupos_piratas"].update_one(
-            {"chat_id": chat.id},
-            {"$set": {"avisos": novos_avisos, "ultimo_aviso": agora}},
-            upsert=True
-        )
-        
-        link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
-        teclado_assinar = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💎Assinar Plano no Privado", url=link_privado)]
-        ])
-        
-        try:
-            if novos_avisos >= 5:
-                await chat.send_message(
-                    "🚨 **Limite de Avisos Atingidos!**\nEste grupo não possui aluguel ativo",
-                    parse_mode="Markdown"
-                )
-                await context.bot.leave_chat(chat.id)
-                db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
-            else:
-                await chat.send_message(
-                    f"⚠️ **Aviso ({novos_avisos}/5):** Este grupo não possui um aluguel ativo!\nPara o bot funcionar aqui, o responsável precisa assinar o plano:",
-                    reply_markup=teclado_assinar,
-                    parse_mode="Markdown"
-                )
-        except Exception:
-            pass
-            
-    return False
-
 async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
     chat = update.effective_chat
@@ -174,16 +108,8 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
     if not chat or not user:
         return
 
-    # NOTA: O bloqueio de licença foi removido deste interceptador global
-    # para evitar que grupos sem aluguel bloqueiem proteções e outros handlers.
-    # O aviso de licença agora ocorre apenas em comandos ou interações específicas,
-    # mantendo o fluxo de segurança livre.
-
     message = update.message
-    if not message:
-        return
-
-    if chat.type == "private":
+    if not message or chat.type == "private":
         return
 
     tipo_incremento = {"total_mensagens": 1}
@@ -276,7 +202,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📉 `/rebaixar` - Rebaixa administrador\n"
             "📢 `/marcar` - Marca todos do grupo\n"
             "📌 `/citar` - Cita mídias/textos marcando todos\n"
-            "⚙️ `/protecao` - Configura as travas de segurança\n"
+            "⚙️ `/status` - Configura as travas de segurança\n"
             "👋 Configurar Bem-Vindo abaixo:"
         )
         teclado_adm = InlineKeyboardMarkup([
@@ -312,7 +238,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await verificar_se_e_adm(update, context):
             await query.answer("⚠️ Apenas administradores do grupo podem configurar o Bem-Vindo!", show_alert=True)
             return
-        
         await query.answer()
         try:
             from comandos.bemvindo import enviar_painel_principal_bv
@@ -326,7 +251,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await query.answer()
         try:
-            from comandos.protecao import enviar_painel_protecoes
+            from protecao.status import enviar_painel_protecoes
             await enviar_painel_protecoes(update, context)
         except Exception as e:
             await query.message.reply_text(f"⚠️ Erro ao abrir o painel de proteções: {e}")
@@ -336,17 +261,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⚠️ Apenas administradores do grupo podem configurar as punições!", show_alert=True)
             return
         try:
-            from comandos.protecao import enviar_painel_punicao
+            from protecao.status import enviar_painel_punicao
             await enviar_painel_punicao(update, context)
         except Exception as e:
             await query.message.reply_text(f"⚠️ Erro ao abrir o painel de punições: {e}")
 
-    elif query.data.startswith(("prot_", "pun_")):
+    elif query.data.startswith(("prot_", "pun_", "menu_fechar")):
         if not await verificar_se_e_adm(update, context):
             await query.answer("⚠️ Apenas administradores podem alterar estas opções!", show_alert=True)
             return
         try:
-            from comandos.protecao import processar_callback_protecao
+            from protecao.status import processar_callback_protecao
             await processar_callback_protecao(update, context)
         except Exception as e:
             await query.answer(f"⚠️ Erro: {e}", show_alert=True)
@@ -456,10 +381,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     threading.Thread(target=run_web, daemon=True).start()
     
-    # Configuração de performance com connection pools e threads ajustadas
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
-    # O interceptador de estatísticas foi movido para o group=3 para não interceptar o fluxo crítico de segurança
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
     from comandos.ping import registrar_ping
@@ -471,7 +394,7 @@ def main():
     from comandos.promover import registrar_promover
     from comandos.marcar import registrar_marcar, capturar_membros_handler, remover_membro_saiu_handler
     from comandos.citar import registrar_citar
-    from comandos.protecao import registrar_protecoes
+    from protecao.status import registrar_protecoes  # <--- IMPORTADO DA PASTA CORRETA
     from comandos.play import setup_play
     from comandos.deploy import registrar_deploy
     from comandos.rank import registrar_rank
@@ -493,7 +416,7 @@ def main():
     registrar_rank(app)
     registrar_marcar(app)
     registrar_citar(app)
-    registrar_protecoes(app)
+    registrar_protecoes(app)  # <--- REGISTRA O STATUS E OS ANTIS AUTOMATICAMENTE
     registrar_comandos_bv(app)
     registrar_ping(app)
     registrar_id(app)
