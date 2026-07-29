@@ -266,8 +266,6 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not chat or not user or chat.type == "private" or not message:
         return
 
-    # Se for admin, o bot ignora para não banir a administração. 
-    # (Caso queira testar com você mesmo, comente a linha abaixo temporariamente).
     if await is_admin(update, context, user.id, chat.id):
         return
 
@@ -372,9 +370,9 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         if tipo_acao == "remover":
             try:
-                await chat.ban_member(user.id)
+                await context.bot.ban_chat_member(chat.id, user.id)
                 aviso = await chat.send_message(
-                    f"🚨 {user.mention_html()} foi banido por enviar {motivo_violacao}.",
+                    f"🚨 {user.mention_html()} foi removido(a)/banido(a) por enviar {motivo_violacao}.",
                     parse_mode="HTML"
                 )
                 asyncio.create_task(apagar_aviso_futuro_async(context, aviso))
@@ -384,9 +382,9 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
         elif tipo_acao == "silenciar":
             try:
                 liberar_ate = timedelta(minutes=punicao["tempo_mute"])
-                await chat.restrict_member(user.id, permissions=False, until_date=liberar_ate)
+                await context.bot.restrict_chat_member(chat.id, user.id, permissions=False, until_date=liberar_ate)
                 aviso = await chat.send_message(
-                    f"🔇 {user.mention_html()} foi silenciado por **{punicao['tempo_mute']} minuto(s)** por enviar {motivo_violacao}.",
+                    f"🔇 {user.mention_html()} foi silenciado(a) por **{punicao['tempo_mute']} minuto(s)** por enviar {motivo_violacao}.",
                     parse_mode="HTML"
                 )
                 asyncio.create_task(apagar_aviso_futuro_async(context, aviso))
@@ -403,9 +401,9 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
                 asyncio.create_task(apagar_aviso_futuro_async(context, aviso))
             else:
                 try:
-                    await chat.ban_member(user.id)
+                    await context.bot.ban_chat_member(chat.id, user.id)
                     aviso = await chat.send_message(
-                        f"🚨 {user.mention_html()} foi banido por insistir em enviar {motivo_violacao}.",
+                        f"🚨 {user.mention_html()} foi removido(a)/banido(a) por insistir em enviar {motivo_violacao}.",
                         parse_mode="HTML"
                     )
                     asyncio.create_task(apagar_aviso_futuro_async(context, aviso))
@@ -439,5 +437,5 @@ async def limpar_dados_grupo_removido(update: Update, context: ContextTypes.DEFA
 
 def registrar_protecoes(app):
     app.add_handler(CommandHandler("protecao", cmd_protecao))
-    app.add_handler(MessageHandler(~filters.StatusUpdate.ALL, monitorar_seguranca), group=2)
+    app.add_handler(MessageHandler(~filters.StatusUpdate.ALL, monitorar_seguranca), group=1)
     app.add_handler(ChatMemberHandler(limpar_dados_grupo_removido, ChatMemberHandler.MY_CHAT_MEMBER))
