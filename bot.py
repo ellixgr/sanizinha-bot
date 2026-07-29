@@ -11,7 +11,7 @@ from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogo
 
 # Importações dos módulos de proteção para o interceptador global
 from protecao.antiflod import executar_antiflod
-from protecao.status import obter_punicao, verificar_se_e_adm as is_admin_protecao, obter_mencao_admins_str
+from protecao.status import obter_punicao, obter_mencao_admins_str
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -118,7 +118,7 @@ async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DE
     # Executa o Anti-Flood para qualquer mensagem, mídia, arquivo ou comando
     passou_flood = await executar_antiflod(
         update, context, chat, user, message, 
-        get_db, is_admin_protecao, obter_punicao, obter_mencao_admins_str
+        get_db, verificar_se_e_adm, obter_punicao, obter_mencao_admins_str
     )
     if passou_flood:
         return  # Se o anti-flood puniu/removeu, interrompe o fluxo para esta mensagem
