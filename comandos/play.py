@@ -3,14 +3,102 @@ import tempfile
 import pathlib
 import logging
 import yt_dlp
+from pymongo import MongoClient
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
 logger = logging.getLogger(__name__)
 
+# Configuração do MongoDB (puxa da variável de ambiente MONGO_URI ou usa uma padrão local)
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client["bot_database"] # Nome do banco de dados
+cookie_collection = db["config_cookies"] # Coleção para guardar o cookie
+
 def setup_play(app: Application):
     app.add_handler(CommandHandler(["baixar", "dl", "play"], play_pesquisa, filters=~filters.ChatType.PRIVATE))
+    app.add_handler(CommandHandler("addcookie", cmd_adicionar_cookie))
+    app.add_handler(CommandHandler("limpacookie", cmd_limpar_cookie))
     app.add_handler(CallbackQueryHandler(baixar_callback, pattern=r"^dl_(video|audio)\|"))
+
+async def verificar_permissao(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user = update.effective_user
+    chat = update.effective_chat
+    
+    # Pega o ID do dono via variável de ambiente
+    dono_id = os.environ.get("DONO_ID")
+    if dono_id and str(user.id) == str(dono_id):
+        return True
+
+    # Se for em grupo, verifica se é Administrador
+    if chat.type in ["group", "supergroup"]:
+        try:
+            member = await chat.get_member(user.id)
+            if member.status in ["creator", "administrator"]:
+                return True
+        except Exception:
+            pass
+
+    return False
+
+def obter_cookie_temporario():
+    """Busca o cookie no MongoDB e cria um arquivo temporário físico para o yt-dlp ler."""
+    registro = cookie_collection.find_one({"_id": "youtube_cookie"})
+    if not registro or not registro.get("conteudo"):
+        return None, None
+
+    # Cria um arquivo temporário seguro no disco apenas durante a execução do download
+    temp_cookie = tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8", suffix=".txt")
+    temp_cookie.write(registro["conteudo"])
+    temp_cookie.close()
+    return temp_cookie.name, temp_cookie
+
+async def cmd_adicionar_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    
+    # Valida se é Dono ou ADM
+    if not await verificar_permissao(update, context):
+        await message.reply_text("❌ Apenas o dono ou administradores podem atualizar os cookies.")
+        return
+
+    if not context.args:
+        await message.reply_text(
+            "⚠️ **Como usar o comando:**\n\n"
+            "Envie o comando seguido do conteúdo do seu arquivo `cookies.txt`.\n"
+            "Exemplo: `/addcookie # Netscape HTTP Cookie File...`",
+            parse_mode="Markdown"
+        )
+        return
+
+    conteudo_cookie = " ".join(context.args)
+
+    try:
+        # Salva ou atualiza no MongoDB
+        cookie_collection.update_one(
+            {"_id": "youtube_cookie"},
+            {"$set": {"conteudo": conteudo_cookie}},
+            upsert=True
+        )
+        await message.reply_text("✅ **Cookie salvo no MongoDB com sucesso!**\nO bot já está utilizando essa sessão para os downloads.")
+    except Exception as e:
+        await message.reply_text(f"❌ Erro ao salvar o cookie no banco: `{e}`", parse_mode="Markdown")
+
+async def cmd_limpar_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    
+    # Valida se é Dono ou ADM
+    if not await verificar_permissao(update, context):
+        await message.reply_text("❌ Apenas o dono ou administradores podem limpar os cookies.")
+        return
+
+    try:
+        resultado = cookie_collection.delete_one({"_id": "youtube_cookie"})
+        if resultado.deleted_count > 0:
+            await message.reply_text("🗑️ **Cookie removido do MongoDB com sucesso!** O bot agora funcionará sem cookies.")
+        else:
+            await message.reply_text("⚠️ Não há nenhum cookie salvo no momento.")
+    except Exception as e:
+        await message.reply_text(f"❌ Erro ao limpar o cookie: `{e}`", parse_mode="Markdown")
 
 async def play_pesquisa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
@@ -24,10 +112,13 @@ async def play_pesquisa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = " ".join(context.args)
     status_msg = await message.reply_text("🔍 Procurando...")
 
+    cookie_path, temp_file_obj = obter_cookie_temporario()
+
     ydl_opts = {
         'format': 'best',
         'noplaylist': True,
         'default_search': 'ytsearch1',
+        'cookiefile': cookie_path,
         'extractor_args': {
             'youtube': {
                 'player_client': ['mweb', 'android', 'web'],
@@ -61,6 +152,12 @@ async def play_pesquisa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await status_msg.edit_text(f"❌ Erro na busca: `{e}`", parse_mode="Markdown")
         return
+    finally:
+        if cookie_path and os.path.exists(cookie_path):
+            try:
+                os.unlink(cookie_path)
+            except Exception:
+                pass
 
     teclado = InlineKeyboardMarkup([
         [
@@ -106,11 +203,13 @@ async def baixar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         pass
 
-    # Configurações do yt-dlp usando diretório temporário (sem cookies e sem pastas fixas)
+    cookie_path, temp_file_obj = obter_cookie_temporario()
+
     if tipo == "dl_video":
         ydl_opts = {
             'format': 'best/bestvideo+bestaudio',
             'noplaylist': True,
+            'cookiefile': cookie_path,
             'extractor_args': {
                 'youtube': {
                     'player_client': ['mweb', 'android', 'web'],
@@ -124,6 +223,7 @@ async def baixar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ydl_opts = {
             'format': 'bestaudio/best',
             'noplaylist': True,
+            'cookiefile': cookie_path,
             'extractor_args': {
                 'youtube': {
                     'player_client': ['mweb', 'android', 'web'],
@@ -146,7 +246,6 @@ async def baixar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             
-            # Prepara o caminho do arquivo de saída com a extensão correta
             output_path = pathlib.Path(ydl.prepare_filename(info))
             if tipo == "dl_audio":
                 output_path = output_path.with_suffix('.mp3')
@@ -193,7 +292,14 @@ async def baixar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(query.message.chat_id, erro_msg)
     
     finally:
-        # Limpeza automática do arquivo temporário
+        # Limpa o arquivo de cookie temporário criado para a requisição
+        if cookie_path and os.path.exists(cookie_path):
+            try:
+                os.unlink(cookie_path)
+            except Exception:
+                pass
+        
+        # Limpa o arquivo de mídia baixado
         if output_path and os.path.exists(output_path):
             try:
                 os.unlink(output_path)
