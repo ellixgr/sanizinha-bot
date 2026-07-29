@@ -100,7 +100,6 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: 
         pass
     return False
 
-# Função corrigida/adicionada para atender o Anti-Flood sem erros de importação
 async def obter_mencao_admins_str(chat, context: ContextTypes.DEFAULT_TYPE) -> str:
     try:
         admins = await chat.get_administrators()
@@ -311,7 +310,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     cfg = obter_configs(chat.id)
 
-    # 1. Anti-Flood
+    # 1. Anti-Flood (Agora checa rigorosamente se está ativado no DB do grupo)
     if cfg.get("antiflood", True):
         if await executar_antiflod(update, context, chat, user, message, get_db, is_admin, obter_punicao, obter_menção_admins):
             return
