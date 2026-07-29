@@ -79,10 +79,13 @@ async def menu_velha_handler(update: Update, context):
 
 async def tratar_botoes_velha(update: Update, context):
     query = update.callback_query
+    await query.answer()
+    
     data = query.data
     chat_id = query.message.chat_id
-    user_id = query.effective_user.id
-    user_name = query.effective_user.first_name
+    user = update.effective_user
+    user_id = user.id
+    user_name = user.first_name
 
     if data == "v_infopvp":
         await query.answer("💡 Para jogar PvP, responda a mensagem de um membro no grupo usando o comando /velha!", show_alert=True)
@@ -105,7 +108,7 @@ async def tratar_botoes_velha(update: Update, context):
             await query.answer("⚠️ Este convite expirou ou não existe.", show_alert=True)
             return
         
-        # BLOQUEIO: Se quem clicou NÃO for o desafiado
+        # BLOQUEIO RIGOROSO: Se quem clicou NÃO for o desafiado
         if user_id != estado["desafiado_id"]:
             await query.answer("❌ Apenas o usuário desafiado pode aceitar este convite!", show_alert=True)
             return
@@ -130,7 +133,7 @@ async def tratar_botoes_velha(update: Update, context):
             await query.answer("⚠️ Convite não encontrado.", show_alert=True)
             return
         
-        # BLOQUEIO: Se quem clicou NÃO for o desafiado
+        # BLOQUEIO RIGOROSO: Se quem clicou NÃO for o desafiado
         if user_id != estado["desafiado_id"]:
             await query.answer("❌ Apenas o usuário desafiado pode recusar este convite!", show_alert=True)
             return
@@ -165,9 +168,11 @@ async def tratar_botoes_velha(update: Update, context):
 
 async def jogada_velha(update: Update, context):
     query = update.callback_query
+    await query.answer()
+    
     data = query.data
     chat_id = query.message.chat_id
-    user_id = query.effective_user.id
+    user_id = update.effective_user.id
 
     pos = int(data.split("_")[1])
     estado = jogos_db.find_one({"chat_id": chat_id})
