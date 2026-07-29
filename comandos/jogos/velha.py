@@ -10,7 +10,8 @@ jogos_db = db["jogo_velha"]
 def setup_velha(app: Application):
     app.add_handler(CommandHandler("velha", cmd_velha))
     app.add_handler(CallbackQueryHandler(iniciar_velha, pattern="^jogo_velha$"))
-    app.add_handler(CallbackQueryHandler(jogada_velha, pattern="^velha_"))
+    app.add_handler(CallbackQueryHandler(tratar_acoes_velha, pattern="^velha_(aceitar|recusar|cancelar|reiniciar|info_pvp|modo_ia)$"))
+    app.add_handler(CallbackQueryHandler(jogada_velha, pattern="^velha_pos_"))
 
 async def cmd_velha(update: Update, context):
     chat = update.effective_chat
@@ -20,7 +21,6 @@ async def cmd_velha(update: Update, context):
         await update.message.reply_text("⚠️ Este comando de desafio PvP deve ser usado dentro de grupos!")
         return
 
-    # Verificar se respondeu alguém ou mencionou
     reply = update.message.reply_to_message
     args = context.args
 
@@ -28,10 +28,6 @@ async def cmd_velha(update: Update, context):
     if reply:
         desafiado = reply.from_user
     elif args:
-        mencao = args[0].replace("@", "")
-        # Tenta achar pelo username se houver cache, ou usa o texto
-        # Como o telegram não busca IDs por username direto sem API externa, exigimos resposta ou menção direta se possível,
-        # mas vamos padronizar pegando o reply ou avisando.
         await update.message.reply_text("⚠️ Por favor, **responda à mensagem** da pessoa que você quer desafiar com `/velha`!", parse_mode="Markdown")
         return
     else:
@@ -46,7 +42,7 @@ async def cmd_velha(update: Update, context):
         await update.message.reply_text("❌ Você não pode desafiar um bot para o PvP. Jogue no modo contra a máquina!", parse_mode="Markdown")
         return
 
-    # Salvar convite pendente no banco
+    # Salvar convite pendente no banco usando o chat_id como chave principal
     jogos_db.update_one(
         {"chat_id": chat.id},
         {"$set": {
@@ -83,7 +79,7 @@ async def iniciar_velha(update: Update, context):
     ])
     await query.message.edit_text("⭕ **Jogo da Velha**\n\nEscolha o modo de jogo:\n_(Para PvP, responda um usuário no chat com `/velha`)_", reply_markup=teclado, parse_mode="Markdown")
 
-async def jogada_velha(update: Update, context):
+async def tratar_acoes_velha(update: Update, context):
     query = update.callback_query
     data = query.data
     chat_id = query.message.chat_id
@@ -98,15 +94,14 @@ async def jogada_velha(update: Update, context):
         tabuleiro = [" " for _ in range(9)]
         jogos_db.update_one(
             {"chat_id": chat_id},
-            {"$set": {"tabuleiro": tabuleiro, "turno": user_id, "modo": "ia", "X": user_id, "O": "IA"}},
+            {"$set": {"tabuleiro": tabuleiro, "turno": user_id, "modo": "ia", "X": user_id, "O": "IA", "status": "ativo"}},
             upsert=True
         )
         await atualizar_tabuleiro(query, tabuleiro, f"🤖 Jogo contra a Máquina iniciado! Sua vez ({user_name} - X).", chat_id)
         return
 
-    # Aceitar ou recusar convite PvP
     estado = jogos_db.find_one({"chat_id": chat_id})
-    
+
     if data == "velha_aceitar":
         if not estado or estado.get("status") != "pendente":
             await query.answer("⚠️ Este convite expirou ou não existe.", show_alert=True)
@@ -115,13 +110,12 @@ async def jogada_velha(update: Update, context):
             await query.answer("❌ Apenas o usuário desafiado pode aceitar este convite!", show_alert=True)
             return
         
-        # Iniciar o jogo PvP
         tabuleiro = [" " for _ in range(9)]
         jogos_db.update_one(
             {"chat_id": chat_id},
             {"$set": {
                 "tabuleiro": tabuleiro,
-                "turno": estado["desafiante_id"], # Desafiante começa de X
+                "turno": estado["desafiante_id"],
                 "modo": "pvp",
                 "X": estado["desafiante_id"],
                 "O": estado["desafiado_id"],
@@ -145,9 +139,14 @@ async def jogada_velha(update: Update, context):
 
     if data == "velha_cancelar":
         if not estado:
-            await query.answer("⚠️ Nenhuma partida pendente.", show_alert=True)
+            await query.answer("⚠️ Nenhuma partida ativa ou pendente.", show_alert=True)
             return
-        if user_id != estado.get("desafiante_id") and user_id != estado.get("desafiado_id") and user_id != int(os.environ.get("DONO_ID", 0)):
+        
+        dono_id = int(os.environ.get("DONO_ID", 0))
+        desafiante = estado.get("desafiante_id")
+        desafiado = estado.get("desafiado_id")
+        
+        if user_id != desafiante and user_id != desafiado and user_id != dono_id:
             await query.answer("❌ Apenas os participantes podem cancelar a partida!", show_alert=True)
             return
         
@@ -155,68 +154,7 @@ async def jogada_velha(update: Update, context):
         await query.message.edit_text("🚫 **Partida cancelada** com sucesso.", parse_mode="Markdown")
         return
 
-    # Jogadas no tabuleiro (velha_pos_0 até velha_pos_8)
-    if data.startswith("velha_pos_"):
-        pos = int(data.split("_")[2])
-        if not estado or estado.get("status") != "ativo":
-            await query.answer("⚠️ Jogo expirado ou não encontrado. Inicie um novo!", show_alert=True)
-            return
-
-        modo = estado.get("modo")
-        turno = estado.get("turno")
-        tabuleiro = estado.get("tabuleiro")
-
-        if user_id != turno and modo == "pvp":
-            await query.answer("❌ Não é a sua vez de jogar!", show_alert=True)
-            return
-
-        if tabuleiro[pos] != " ":
-            await query.answer("⚠️ Este espaço já está ocupado!", show_alert=True)
-            return
-
-        if modo == "pvp":
-            simbolo = "X" if user_id == estado["X"] else "O"
-            tabuleiro[pos] = simbolo
-            
-            vencedor = verificar_vencedor(tabuleiro)
-            if vencedor or " " not in tabuleiro:
-                vencedor_nome = estado["desafiante_nome"] if vencedor == "X" else estado["desafiado_nome"] if vencedor == "O" else None
-                await finalizar_jogo(query, tabuleiro, vencedor, vencedor_nome)
-                jogos_db.delete_one({"chat_id": chat_id})
-                return
-
-            proximo_turno = estado["O"] if user_id == estado["X"] else estado["X"]
-            proximo_nome = estado["desafiado_nome"] if user_id == estado["X"] else estado["desafiante_nome"]
-            
-            jogos_db.update_one({"chat_id": chat_id}, {"$set": {"tabuleiro": tabuleiro, "turno": proximo_turno}})
-            await atualizar_tabuleiro(query, tabuleiro, f"Vez de {proximo_nome} ({'X' if proximo_turno == estado['X'] else 'O'})", chat_id)
-
-        elif modo == "ia":
-            tabuleiro[pos] = "X"
-            vencedor = verificar_vencedor(tabuleiro)
-            if vencedor or " " not in tabuleiro:
-                await finalizar_jogo(query, tabuleiro, vencedor, "Você" if vencedor == "X" else "Máquina")
-                jogos_db.delete_one({"chat_id": chat_id})
-                return
-
-            # Jogada da IA
-            vazias = [i for i, x in enumerate(tabuleiro) if x == " "]
-            if vazias:
-                import random
-                ai_pos = random.choice(vazias)
-                tabuleiro[ai_pos] = "O"
-
-            vencedor = verificar_vencedor(tabuleiro)
-            if vencedor or " " not in tabuleiro:
-                await finalizar_jogo(query, tabuleiro, vencedor, "Você" if vencedor == "X" else "Máquina")
-                jogos_db.delete_one({"chat_id": chat_id})
-                return
-
-            jogos_db.update_one({"chat_id": chat_id}, {"$set": {"tabuleiro": tabuleiro}})
-            await atualizar_tabuleiro(query, tabuleiro, "Sua vez (X)", chat_id)
-
-    elif data == "velha_reiniciar":
-        # Iniciar nova partida rápida contra IA ou resetar
+    if data == "velha_reiniciar":
         tabuleiro = [" " for _ in range(9)]
         jogos_db.update_one(
             {"chat_id": chat_id},
@@ -224,6 +162,74 @@ async def jogada_velha(update: Update, context):
             upsert=True
         )
         await atualizar_tabuleiro(query, tabuleiro, f"🎮 Novo jogo iniciado! Sua vez.", chat_id)
+
+async def jogada_velha(update: Update, context):
+    query = update.callback_query
+    data = query.data
+    chat_id = query.message.chat_id
+    user_id = query.effective_user.id
+
+    pos = int(data.split("_")[2])
+    estado = jogos_db.find_one({"chat_id": chat_id})
+    
+    if not estado or estado.get("status") != "ativo":
+        await query.answer("⚠️ Jogo expirado ou não encontrado. Inicie um novo!", show_alert=True)
+        return
+
+    modo = estado.get("modo")
+    turno = estado.get("turno")
+    tabuleiro = estado.get("tabuleiro")
+
+    if modo == "pvp":
+        if user_id != turno:
+            await query.answer("❌ Não é a sua vez de jogar!", show_alert=True)
+            return
+        if tabuleiro[pos] != " ":
+            await query.answer("⚠️ Este espaço já está ocupado!", show_alert=True)
+            return
+
+        simbolo = "X" if user_id == estado["X"] else "O"
+        tabuleiro[pos] = simbolo
+        
+        vencedor = verificar_vencedor(tabuleiro)
+        if vencedor or " " not in tabuleiro:
+            vencedor_nome = estado["desafiante_nome"] if vencedor == "X" else estado["desafiado_nome"] if vencedor == "O" else None
+            await finalizar_jogo(query, tabuleiro, vencedor, vencedor_nome)
+            jogos_db.delete_one({"chat_id": chat_id})
+            return
+
+        proximo_turno = estado["O"] if user_id == estado["X"] else estado["X"]
+        proximo_nome = estado["desafiado_nome"] if user_id == estado["X"] else estado["desafiante_nome"]
+        
+        jogos_db.update_one({"chat_id": chat_id}, {"$set": {"tabuleiro": tabuleiro, "turno": proximo_turno}})
+        await atualizar_tabuleiro(query, tabuleiro, f"Vez de {proximo_nome} ({'X' if proximo_turno == estado['X'] else 'O'})", chat_id)
+
+    elif modo == "ia":
+        if tabuleiro[pos] != " ":
+            await query.answer("⚠️ Este espaço já está ocupado!", show_alert=True)
+            return
+        
+        tabuleiro[pos] = "X"
+        vencedor = verificar_vencedor(tabuleiro)
+        if vencedor or " " not in tabuleiro:
+            await finalizar_jogo(query, tabuleiro, vencedor, "Você" if vencedor == "X" else "Máquina")
+            jogos_db.delete_one({"chat_id": chat_id})
+            return
+
+        vazias = [i for i, x in enumerate(tabuleiro) if x == " "]
+        if vazias:
+            import random
+            ai_pos = random.choice(vazias)
+            tabuleiro[ai_pos] = "O"
+
+        vencedor = verificar_vencedor(tabuleiro)
+        if vencedor or " " not in tabuleiro:
+            await finalizar_jogo(query, tabuleiro, vencedor, "Você" if vencedor == "X" else "Máquina")
+            jogos_db.delete_one({"chat_id": chat_id})
+            return
+
+        jogos_db.update_one({"chat_id": chat_id}, {"$set": {"tabuleiro": tabuleiro}})
+        await atualizar_tabuleiro(query, tabuleiro, "Sua vez (X)", chat_id)
 
 def verificar_vencedor(t):
     linhas = [(0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)]
