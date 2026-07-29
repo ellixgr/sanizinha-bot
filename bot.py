@@ -9,7 +9,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler, ApplicationHandlerStop
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 
-# Importações dos módulos de proteção para o interceptador global
+# Importações dos módulos de proteção
 from protecao.antiflod import executar_antiflod
 from protecao.status import obter_punicao, obter_mencao_admins_str
 
@@ -106,7 +106,7 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     return False
 
-# Interceptador Global de Proteções rodando no group=-1 (Prioridade máxima)
+# INTERCEPTADOR GLOBAL DE PROTEÇÕES (CORRIGIDO)
 async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -120,7 +120,8 @@ async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DE
         get_db, verificar_se_e_adm, obter_punicao, obter_mencao_admins_str
     )
     if passou_flood:
-        raise ApplicationHandlerStop  # Interrompe totalmente o fluxo para o flood não passar
+        # INTERROMPE TOTALMENTE O COMANDO/MENSAGEM SE FOR FLOOD
+        raise ApplicationHandlerStop
 
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -403,8 +404,11 @@ def main():
     
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
-    # Interceptador global rodando em group=-1 pegando textos, comandos e mídias
-    app.add_handler(MessageHandler((filters.TEXT | filters.COMMAND | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Sticker.ALL) & ~filters.ChatType.PRIVATE, interceptador_geral_protecoes), group=-1)
+    # INTERCEPTADOR DE FLOOD → PRIORIDADE MÁXIMA (group=-1)
+    app.add_handler(MessageHandler(
+        (filters.TEXT | filters.COMMAND | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Sticker.ALL) & ~filters.ChatType.PRIVATE,
+        interceptador_geral_protecoes
+    ), group=-1)
 
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
