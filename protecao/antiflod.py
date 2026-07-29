@@ -2,10 +2,12 @@ import time
 import asyncio
 from datetime import timedelta
 
-# Dicionário robusto para rastrear o histórico de eventos por usuário no chat
 REGISTRO_FLOOD_AVANCADO = {}
 
 async def executar_antiflod(update, context, chat, user, message, get_db, is_admin, obter_punicao, obter_menção_admins):
+    if not chat or not user or chat.type == "private":
+        return False
+
     # Admins passam livremente
     if await is_admin(update, context, user.id, chat.id):
         return False
@@ -18,53 +20,71 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
 
     # Limpa registros antigos com mais de 5 segundos
     REGISTRO_FLOOD_AVANCADO[chave_flood] = [t for t in REGISTRO_FLOOD_AVANCADO[chave_flood] if agora - t < 5]
-    
-    # Adiciona o timestamp atual da nova mensagem ou comando enviado
     REGISTRO_FLOOD_AVANCADO[chave_flood].append(agora)
 
-    # Limite rígido: se ultrapassar 4 mensagens/comandos em um intervalo menor que 5 segundos, ativa o flood
-    LIMITE_MENSAGENS = 4
-    if len(REGISTRO_FLOOD_AVANCADO[chave_flood]) < LIMITE_MENSAGENS:
+    # Dispara se ultrapassar 4 mensagens/mídias/comandos em menos de 5 segundos
+    if len(REGISTRO_FLOOD_AVANCADO[chave_flood]) < 4:
         return False
 
-    # Reseta imediatamente o registro do usuário para evitar loop infinito de punições
+    # Reseta o registro para evitar loop
     REGISTRO_FLOOD_AVANCADO[chave_flood] = []
 
-    # Busca as regras de punição configuradas no grupo
+    # Busca a punição configurada nas preferências do grupo
     punicao = obter_punicao(chat.id)
-    
-    # Tenta apagar a última mensagem que estourou o limite
+    tipo_acao = punicao.get("acao", "silenciar") # Padrão silenciar se não configurado
+    tempo_mute = punicao.get("tempo_mute", 2)   # Minutos configurados no painel
+
+    # Apaga a mensagem se configurado
     if punicao.get("apagar_msg", True):
         try:
             await message.delete()
         except Exception:
             pass
 
-    # Aplica a sanção por Flood (Silenciamento automático por 2 minutos)
+    mencoes_admins = await obter_menção_admins(chat, context)
+
     try:
-        liberar_ate = timedelta(minutes=2)
-        await context.bot.restrict_chat_member(
-            chat.id, 
-            user.id, 
-            permissions=False,  # Bloqueia envio de mensagens
-            until_date=liberar_ate
-        )
-        
-        mencoes_admins = await obter_menção_admins(chat, context)
-        aviso = await chat.send_message(
-            f"⚡ **ANTI-FLOOD ACIONADO**\n\n"
-            f"👤 Usuário: {user.mention_html()}\n"
-            f"🛑 Punição: Silenciado(a) por **2 minutos** devido ao envio excessivo de mensagens ou comandos em sequência.\n\n"
-            f"🔔 Administradores: {mencoes_admins}",
-            parse_mode="HTML"
-        )
-        
-        # Opcional: Auto-destruição do aviso do bot após 30 segundos para limpar o chat
-        asyncio.create_task(destruir_aviso_depois(aviso))
+        if tipo_acao == "remover":
+            await context.bot.ban_chat_member(chat.id, user.id)
+            aviso = await chat.send_message(
+                f"⚡ **ANTI-FLOOD ACIONADO**\n\n"
+                f"👤 Usuário: {user.mention_html()}\n"
+                f"🛑 Punição: **Banido(a)** por envio excessivo de mensagens/flood.\n\n"
+                f"🔔 Admins: {mencoes_admins}",
+                parse_mode="HTML"
+            )
+            asyncio.create_task(destruir_aviso_depois(aviso))
+
+        elif tipo_acao == "silenciar":
+            liberar_ate = timedelta(minutes=tempo_mute)
+            await context.bot.restrict_chat_member(
+                chat.id, user.id, permissions=False, until_date=liberar_ate
+            )
+            aviso = await chat.send_message(
+                f"⚡ **ANTI-FLOOD ACIONADO**\n\n"
+                f"👤 Usuário: {user.mention_html()}\n"
+                f"🛑 Punição: Silenciado(a) por **{tempo_mute} minuto(s)** devido a flood.\n\n"
+                f"🔔 Admins: {mencoes_admins}",
+                parse_mode="HTML"
+            )
+            asyncio.create_task(destruir_aviso_depois(aviso))
+            
+        else: # Ação padrão de aviso/mutar rápido
+            liberar_ate = timedelta(minutes=2)
+            await context.bot.restrict_chat_member(
+                chat.id, user.id, permissions=False, until_date=liberar_ate
+            )
+            aviso = await chat.send_message(
+                f"⚡ **ANTI-FLOOD ACIONADO**\n\n"
+                f"👤 Usuário: {user.mention_html()}\n"
+                f"🛑 Punição: Silenciado(a) por **2 minutos** (Flood detectado).\n\n"
+                f"🔔 Admins: {mencoes_admins}",
+                parse_mode="HTML"
+            )
+            asyncio.create_task(destruir_aviso_depois(aviso))
 
     except Exception as e:
         print(f"Erro ao aplicar punição de anti-flood: {e}")
-        pass
 
     return True
 
