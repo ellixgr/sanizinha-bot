@@ -81,7 +81,6 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     if not chat or chat.type not in ["group","supergroup"]:
         return
-    # ✅ SE FOR O DONO, NÃO FAZ NADA — DEIXA O BOT FICAR
     if DONO_ID and str(user.id) == str(DONO_ID):
         return
     if await grupo_autorizado(chat.id):
@@ -97,18 +96,13 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-# ==============================================
-# ✅ AJUSTADO: SEMPRE LIBERA O DONO, MESMO EM GRUPOS NÃO AUTORIZADOS
-# ==============================================
 async def interceptador_grupos_nao_autorizados(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     if not chat or chat.type == "private":
         return
-    # ✅ SE FOR O DONO, DEIXA PASSAR TUDO
     if DONO_ID and str(user.id) == str(DONO_ID):
         return
-    # SE NÃO FOR DONO E GRUPO NÃO ESTIVER LIBERADO, BLOQUEIA
     if not await grupo_autorizado(chat.id):
         raise ApplicationHandlerStop
 
@@ -118,7 +112,6 @@ async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DE
     msg = update.message or update.effective_message
     if not chat or not user or chat.type == "private" or not msg:
         return
-    # ✅ SE FOR O DONO, NÃO APLICA BLOQUEIO
     if DONO_ID and str(user.id) == str(DONO_ID):
         return
     if not await grupo_autorizado(chat.id):
@@ -130,7 +123,6 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
     chat = update.effective_chat
     user = update.effective_user
     if not chat or not user or chat.type == "private": return
-    # ✅ SE FOR O DONO, NÃO PRECISA CONTAR
     if DONO_ID and str(user.id) == str(DONO_ID):
         return
     if not await grupo_autorizado(chat.id): return
@@ -175,7 +167,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processar_callback_addgrupo(update, context, get_db, FUSO_BR)
         return
 
-    # ✅ SE FOR O DONO, NÃO VERIFICA GRUPO
     if not (DONO_ID and str(uid) == str(DONO_ID)):
         if chat.type != "private" and not await grupo_autorizado(chat.id):
             await query.answer("❌ Grupo não autorizado!", show_alert=True)
@@ -259,7 +250,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_membros")]]), parse_mode="Markdown")
     elif query.data == "menu_jogos_atalho":
         await menu_jogos_handler(update, context)
-    elif query.data in ["jogo_velha","jogo_memoria","jogo_xadrez","jogo_dama"]:
+    elif query.data == "jogo_xadrez":
+        await query.answer("Abrindo menu do Xadrez...")
+        from comandos.jogos.xadrez import menu_xadrez_handler
+        await menu_xadrez_handler(update, context)
+    elif query.data in ["jogo_velha","jogo_memoria","jogo_dama"]:
         await processar_callback_jogos(update, context)
     elif query.data in ["voltar_menu","ver_comandos","voltar_principal_grupo"]:
         await start(update, context)
