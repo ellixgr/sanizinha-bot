@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from flask import Flask
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler, ApplicationHandlerStop
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 
 # Importações dos módulos de proteção para o interceptador global
@@ -402,8 +402,6 @@ def main():
     threading.Thread(target=run_web, daemon=True).start()
     
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
-
-    from telegram.ext import ApplicationHandlerStop
 
     # Interceptador global rodando em group=-1 pegando textos, comandos e mídias
     app.add_handler(MessageHandler((filters.TEXT | filters.COMMAND | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Sticker.ALL) & ~filters.ChatType.PRIVATE, interceptador_geral_protecoes), group=-1)
