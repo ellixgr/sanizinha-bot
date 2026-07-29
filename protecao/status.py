@@ -4,13 +4,13 @@ from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, ChatMemberHandler
 
-# Importação dos módulos antis autônomos
-from antilink import executar_antilink
-from antimencao import executar_antimencao
-from antiimagem import executar_antiimagem
-from antifigu import executar_antifigu
-from antitrava import executar_antitrava
-from antiflod import executar_antiflod
+# Importação correta dos módulos antis autônomos dentro da pasta protecao
+from protecao.antilink import executar_antilink
+from protecao.antimencao import executar_antimencao
+from protecao.antiimagem import executar_antiimagem
+from protecao.antifigu import executar_antifigu
+from protecao.antitrava import executar_antitrava
+from protecao.antiflod import executar_antiflod
 
 def get_db():
     mongo_uri = os.environ.get("MONGO_URI")
