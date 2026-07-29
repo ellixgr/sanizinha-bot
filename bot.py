@@ -337,15 +337,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not await verificar_se_e_adm(update, context):
             await query.answer("⚠️ Apenas administradores do grupo podem configurar as Proteções!", show_alert=True)
             return
-
         await query.answer()
         try:
             from comandos.protecao import enviar_painel_protecoes
-            update.callback_query = query
             await enviar_painel_protecoes(update, context)
         except Exception as e:
             await query.message.reply_text(f"⚠️ Erro ao abrir o painel de proteções: {e}")
-
     elif query.data.startswith("prot_"):
         if not await verificar_se_e_adm(update, context):
             await query.answer("⚠️ Apenas administradores podem alterar as proteções!", show_alert=True)
