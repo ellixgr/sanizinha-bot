@@ -128,13 +128,13 @@ async def verificar_licenca_grupo(update: Update, context: ContextTypes.DEFAULT_
         
         link_privado = f"https://t.me/{context.bot.username}?start=aluguel"
         teclado_assinar = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💳 Assinar Plano no Privado", url=link_privado)]
+            [InlineKeyboardButton("💎Assinar Plano no Privado", url=link_privado)]
         ])
         
         try:
             if novos_avisos >= 5:
                 await chat.send_message(
-                    "🚨 **Limite de Avisos Atingidos!**\nEste grupo não possui aluguel ativo e os 5 avisos esgotaram. O bot está se retirando do grupo.",
+                    "🚨 **Limite de Avisos Atingidos!**\nEste grupo não possui aluguel ativo",
                     parse_mode="Markdown"
                 )
                 await context.bot.leave_chat(chat.id)
