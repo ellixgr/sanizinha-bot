@@ -106,7 +106,7 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     return False
 
-# Interceptador Global de Proteções (Anti-Flood, Anti-Menção, etc.)
+# Interceptador Global de Proteções rodando no group=-1 (Prioridade máxima)
 async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -115,13 +115,12 @@ async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DE
     if not chat or not user or chat.type == "private" or not message:
         return
 
-    # Executa o Anti-Flood para qualquer mensagem, mídia, arquivo ou comando
     passou_flood = await executar_antiflod(
         update, context, chat, user, message, 
         get_db, verificar_se_e_adm, obter_punicao, obter_mencao_admins_str
     )
     if passou_flood:
-        return  # Se o anti-flood puniu/removeu, interrompe o fluxo para esta mensagem
+        raise ApplicationHandlerStop  # Interrompe totalmente o fluxo para o flood não passar
 
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -404,8 +403,10 @@ def main():
     
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
-    # Interceptador global de proteções (Anti-Flood, Anti-Menção) rodando no grupo 1
-    app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Sticker.ALL) & ~filters.ChatType.PRIVATE, interceptador_geral_protecoes), group=1)
+    from telegram.ext import ApplicationHandlerStop
+
+    # Interceptador global rodando em group=-1 pegando textos, comandos e mídias
+    app.add_handler(MessageHandler((filters.TEXT | filters.COMMAND | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Sticker.ALL) & ~filters.ChatType.PRIVATE, interceptador_geral_protecoes), group=-1)
 
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
