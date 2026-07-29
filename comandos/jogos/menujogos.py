@@ -22,18 +22,12 @@ async def processar_callback_jogos(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     data = query.data
 
-    # Voltar para a central de jogos
     if data == "menu_jogos_atalho":
         await menu_jogos_handler(update, context)
         return
 
-    # ABRIR O MENU DO XADREZ DIRETO DAQUI — se o handler externo não pegar, esse resolve
+    # ✅ AQUI ERA O ERRO: caminho completo igual ao do seu bot.py
     if data == "jogo_xadrez":
-        # Importa a função do menu do xadrez (ajuste o caminho se seu arquivo tiver nome diferente)
-        from xadrez import menu_xadrez_handler
+        from comandos.jogos.xadrez import menu_xadrez_handler
         await menu_xadrez_handler(update, context)
         return
-
-    # Aqui depois você adiciona os outros jogos quando eles estiverem prontos:
-    # if data == "jogo_velha": ...
-    # if data == "jogo_memoria": ...
