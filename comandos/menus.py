@@ -10,7 +10,8 @@ async def menu_membros_handler(update, context):
         "🏓 `/ping` - Status de hardware, RAM e latência\n"
         "👤 `/perfil` - Suas estatísticas completas, bio e mídias\n"
         "🆔 `/id` - Mostra seu ID e do chat\n"
-        "📥 `/play` ou `/dl` - Baixa vídeos e músicas do YouTube"
+        "📥 `/play` ou `/dl` - Baixa vídeos e músicas do YouTube\n\n"
+        "🔒 *Para usar estes comandos no privado, contrate o plano mensal!*"
     )
     
     teclado_membros = InlineKeyboardMarkup([
@@ -34,8 +35,9 @@ async def menu_adm_handler(update, context):
         "📢 `/marcar` - Marca todos do grupo\n"
         "📌 `/citar` - Cita mídias/textos marcando todos\n"
         "⚙️ `/protecao` - Configura as travas de segurança\n"
-        "🎵 `/addcookie` - para o play funciona"
-        "👋 Configurar Bem-Vindo abaixo:"
+        "🎵 `/addcookie` - para o play funciona\n"
+        "👋 Configurar Bem-Vindo abaixo:\n\n"
+        "🔒 *Apenas funcionam dentro de grupos!*"
     )
     
     teclado_adm = InlineKeyboardMarkup([
