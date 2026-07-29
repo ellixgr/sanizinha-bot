@@ -174,10 +174,10 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
     if not chat or not user:
         return
 
-    if chat.type in ["group", "supergroup"]:
-        valido = await verificar_licenca_grupo(update, context)
-        if not valido:
-            return 
+    # NOTA: O bloqueio de licença foi removido deste interceptador global
+    # para evitar que grupos sem aluguel bloqueiem proteções e outros handlers.
+    # O aviso de licença agora ocorre apenas em comandos ou interações específicas,
+    # mantendo o fluxo de segurança livre.
 
     message = update.message
     if not message:
@@ -209,11 +209,6 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-
-    if chat.type in ["group", "supergroup"]:
-        valido = await verificar_licenca_grupo(update, context)
-        if not valido:
-            return
 
     agora = datetime.now(FUSO_BR)
     hora_atual = agora.strftime("%H:%M:%S")
@@ -254,14 +249,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
     chat = query.message.chat
-    
-    if chat and chat.type in ["group", "supergroup"]:
-        db = get_db()
-        agora = time.time()
-        chat_registrado = db["grupos_autorizados"].find_one({"chat_id": chat.id, "expira_em": {"$gt": agora}}, {"_id": 1})
-        if not chat_registrado and (not DONO_ID or str(user_id) != str(DONO_ID)):
-            await query.answer("❌ Este grupo não possui aluguel ativo!", show_alert=True)
-            return
 
     if query.data == "menu_membros":
         await query.answer()
@@ -472,7 +459,8 @@ def main():
     # Configuração de performance com connection pools e threads ajustadas
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
-    app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=-1)
+    # O interceptador de estatísticas foi movido para o group=3 para não interceptar o fluxo crítico de segurança
+    app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
     from comandos.ping import registrar_ping
     from comandos.id import registrar_id
