@@ -2,33 +2,80 @@ import time
 import re
 from datetime import timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, ChatMemberHandler
 
-# Dicionários de estado por chat_id
-CONFIGS_PROTECAO = {}
-CONFIGS_PUNICAO = {}
 REGISTRO_FLOOD = {}
 REGISTRO_AVISADOS = {}
 
+def get_db():
+    from pymongo import MongoClient
+    import os
+    mongo_uri = os.environ.get("MONGO_URI")
+    client = MongoClient(
+        mongo_uri, 
+        serverSelectionTimeoutMS=1000, 
+        connectTimeoutMS=1000,
+        tlsAllowInvalidCertificates=True
+    )
+    return client["sanizinhabot_db"]
+
 def obter_configs(chat_id: int):
-    if chat_id not in CONFIGS_PROTECAO:
-        CONFIGS_PROTECAO[chat_id] = {
-            "antilink": False,
-            "antifoto": False,
-            "antifigu": False,
-            "antitravas": False,
-            "antiflood": True
-        }
-    return CONFIGS_PROTECAO[chat_id]
+    try:
+        db = get_db()
+        doc = db["configs_protecao"].find_one({"chat_id": chat_id})
+        if doc and "configs" in doc:
+            return doc["configs"]
+    except Exception:
+        pass
+    
+    # Padrão caso não exista
+    padrao = {
+        "antilink": False,
+        "antifoto": False,
+        "antifigu": False,
+        "antitravas": False,
+        "antiflood": True
+    }
+    return padrao
+
+def salvar_configs(chat_id: int, cfg: dict):
+    try:
+        db = get_db()
+        db["configs_protecao"].update_one(
+            {"chat_id": chat_id},
+            {"$set": {"configs": cfg}},
+            upsert=True
+        )
+    except Exception:
+        pass
 
 def obter_punicao(chat_id: int):
-    if chat_id not in CONFIGS_PUNICAO:
-        CONFIGS_PUNICAO[chat_id] = {
-            "acao": "aviso_ban",  # Opções: "aviso_ban", "remover", "silenciar"
-            "apagar_msg": True,   # Apagar a mensagem infratora
-            "tempo_mute": 1       # Tempo padrão de silenciamento em minutos
-        }
-    return CONFIGS_PUNICAO[chat_id]
+    try:
+        db = get_db()
+        doc = db["configs_protecao"].find_one({"chat_id": chat_id})
+        if doc and "punicao" in doc:
+            return doc["punicao"]
+    except Exception:
+        pass
+        
+    # Padrão caso não exista
+    padrao = {
+        "acao": "aviso_ban",
+        "apagar_msg": True,
+        "tempo_mute": 1
+    }
+    return padrao
+
+def salvar_punicao(chat_id: int, punicao: dict):
+    try:
+        db = get_db()
+        db["configs_protecao"].update_one(
+            {"chat_id": chat_id},
+            {"$set": {"punicao": punicao}},
+            upsert=True
+        )
+    except Exception:
+        pass
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> bool:
     if chat_id > 0:  # Chat privado
@@ -48,15 +95,7 @@ def gerar_teclado_protecoes(cfg):
     s_trav = "🟢 Ligado" if cfg["antitravas"] else "🔴 Desligado"
     s_flood = "🟢 Ligado" if cfg["antiflood"] else "🔴 Desligado"
 
-    texto = (
-        f"🛡️ **PAINEL DE PROTEÇÕES DO GRUPO**\n\n"
-        f"Gerencie os sistemas de segurança e bloqueio abaixo. Apenas administradores podem alterar estes ajustes.\n\n"
-        f"🔗 **Anti-Link/Grupos/Canais:** `{s_link}`\n"
-        f"📸 **Anti-Foto:** `{s_foto}`\n"
-        f"🖼️ **Anti-Figurinha:** `{s_figu}`\n"
-        f"⚠️ **Anti-Travas/Golpes (Caracteres):** `{s_trav}`\n"
-        f"⚡ **Anti-Flood (Spam):** `{s_flood}`"
-    )
+    texto = "🛡️ **PAINEL DE PROTEÇÕES DO GRUPO**"
 
     teclado = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"🔗 Anti-Link: {s_link}", callback_data="prot_toggle_antilink")],
@@ -112,10 +151,9 @@ async def enviar_painel_punicao(update: Update, context: ContextTypes.DEFAULT_TY
 
     texto = (
         f"⚙️ **CONFIGURAR PUNIÇÃO DAS PROTEÇÕES**\n\n"
-        f"Defina o que o bot deve fazer quando um membro violar as regras de segurança:\n\n"
         f"📌 **Tipo de Punição:** `{nome_acao_atual}`\n"
         f"🗑️ **Apagar Mensagem Infratora:** `{status_apagar}`\n"
-        f"⏱️ **Tempo de Silenciamento:** `{tempo_str}` (Aplicado se o modo Mute estiver ativo)"
+        f"⏱️ **Tempo de Silenciamento:** `{tempo_str}`"
     )
 
     teclado = InlineKeyboardMarkup([
@@ -152,8 +190,8 @@ async def processar_callback_protecao(update: Update, context: ContextTypes.DEFA
         cfg = obter_configs(chat_id)
         if acao in cfg:
             cfg[acao] = not cfg[acao]
+            salvar_configs(chat_id, cfg)
             await query.answer("Status alterado com sucesso!")
-            # Atualiza diretamente a mensagem do painel usando os dados novos para evitar conflitos no objeto Update
             texto, teclado = gerar_teclado_protecoes(cfg)
             await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
@@ -166,6 +204,7 @@ async def processar_callback_protecao(update: Update, context: ContextTypes.DEFA
     elif data == "pun_toggle_apagar":
         p = obter_punicao(chat_id)
         p["apagar_msg"] = not p["apagar_msg"]
+        salvar_punicao(chat_id, p)
         await query.answer("Configuração alterada!")
         await enviar_painel_punicao(update, context)
 
@@ -173,6 +212,7 @@ async def processar_callback_protecao(update: Update, context: ContextTypes.DEFA
         p = obter_punicao(chat_id)
         ciclo = {"aviso_ban": "remover", "remover": "silenciar", "silenciar": "aviso_ban"}
         p["acao"] = ciclo.get(p["acao"], "aviso_ban")
+        salvar_punicao(chat_id, p)
         await query.answer("Modo de punição alterado!")
         await enviar_painel_punicao(update, context)
 
@@ -180,6 +220,7 @@ async def processar_callback_protecao(update: Update, context: ContextTypes.DEFA
         p = obter_punicao(chat_id)
         if p["tempo_mute"] > 1:
             p["tempo_mute"] -= 1
+            salvar_punicao(chat_id, p)
             await query.answer(f"Tempo reduzido para {p['tempo_mute']} min")
         else:
             await query.answer("O tempo mínimo é 1 minuto!", show_alert=False)
@@ -189,6 +230,7 @@ async def processar_callback_protecao(update: Update, context: ContextTypes.DEFA
         p = obter_punicao(chat_id)
         if p["tempo_mute"] < 1440:
             p["tempo_mute"] += 1
+            salvar_punicao(chat_id, p)
             await query.answer(f"Tempo aumentado para {p['tempo_mute']} min")
         else:
             await query.answer("O tempo máximo é 1440 minutos!", show_alert=False)
@@ -216,7 +258,6 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not chat or not user or chat.type == "private" or not message:
         return
 
-    # Administradores são imunes
     if await is_admin(update, context, user.id, chat.id):
         return
 
@@ -227,7 +268,6 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     motivo_violacao = ""
     eh_flood = False
 
-    # 1. Verificação de Anti-Flood
     if cfg["antiflood"]:
         agora = time.time()
         chave = (chat.id, user.id)
@@ -242,7 +282,6 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             violacao_detectada = True
             motivo_violacao = "flood de mensagens/comandos"
 
-    # 2. Demais proteções se não for flood
     if not eh_flood:
         if cfg["antilink"]:
             ignorar_chatbot = f"@{context.bot.username}" in texto_conteudo and message.text and message.text.startswith("/start")
@@ -338,11 +377,28 @@ async def apagar_aviso_futuro(context):
     except Exception:
         pass
 
+async def limpar_dados_grupo_removido(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Limpa os dados do MongoDB caso o bot seja removido ou expulso do grupo."""
+    result = update.my_chat_member
+    if not result:
+        return
+    
+    chat = update.effective_chat
+    novo_status = result.new_chat_member.status
+    
+    # Se o bot foi removido ou saiu do grupo (left, kicked)
+    if novo_status in ["left", "kicked"]:
+        try:
+            db = get_db()
+            db["configs_protecao"].delete_one({"chat_id": chat.id})
+            db["mensagens_usuarios"].delete_many({"chat_id": chat.id})
+            db["grupos_autorizados"].delete_one({"chat_id": chat.id})
+            db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
+        except Exception:
+            pass
+
 def registrar_protecoes(app):
     app.add_handler(CommandHandler("protecao", cmd_protecao))
-    # Certifique-se de registrar o CallbackQueryHandler para o painel se já não o fez no main:
-    # app.add_handler(CallbackQueryHandler(processar_callback_protecao, pattern="^(prot_|pun_|menu_config_punicao|menu_protecoes)"))
-    app.add_handler(MessageHandler(
-        ~filters.StatusUpdate.ALL, 
-        monitorar_seguranca
-    ), group=2)
+    app.add_handler(MessageHandler(~filters.StatusUpdate.ALL, monitorar_seguranca), group=2)
+    # Monitora se o bot foi removido do grupo para limpar o Mongo
+    app.add_handler(ChatMemberHandler(limpar_dados_grupo_removido, ChatMemberHandler.MY_CHAT_MEMBER))
