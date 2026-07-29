@@ -84,7 +84,6 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
                     deploy_data = data.get("deploy", data)
                     deploy_id = deploy_data.get("id") or data.get("id", "Desconhecido")
                     
-                    # Salva imediatamente o arquivo para o bot novo avisar assim que subir
                     with open(ARQUIVO_ESTADO_DEPLOY, "w", encoding="utf-8") as f:
                         json.dump({
                             "chat_id": msg.chat_id, 
@@ -94,10 +93,7 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
 
                     texto_inicial = f"🔄 **Clear Build Cache & Deploy disparado!**\n\nID: `{deploy_id}`\nO Render está compilando. O bot vai se atualizar assim que religar..."
                     
-                    if update.callback_query:
-                        await msg.edit_text(texto_inicial, parse_mode="Markdown")
-                    else:
-                        await msg.edit_text(texto_inicial, parse_mode="Markdown")
+                    await msg.edit_text(texto_inicial, parse_mode="Markdown")
                 else:
                     erro_texto = await response.text()
                     texto_falha = f"❌ Erro ao comunicar com a API do Render:\n`{erro_texto}`"
@@ -112,5 +108,5 @@ async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def registrar_deploy(app):
     app.add_handler(CommandHandler("cleardeploy", cmd_clear_deploy))
     
-    # Adiciona a checagem diretamente na fila de inicialização segura do bot sem usar create_task manual
-    app.job_queue.run_once(lambda ctx: asyncio.create_task(checar_deploy_pendente_ao_iniciar(app)), when=1) if app.job_queue else None
+    # Executa a checagem ao iniciar de forma nativa via asyncio, evitando qualquer aviso de JobQueue
+    asyncio.create_task(checar_deploy_pendente_ao_iniciar(app))
