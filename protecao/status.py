@@ -4,13 +4,15 @@ from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, ChatMemberHandler
 
-# Importação correta dos módulos antis autônomos dentro da pasta protecao
+# Importação de todos os módulos de proteção atualizados
 from protecao.antilink import executar_antilink
 from protecao.antimencao import executar_antimencao
 from protecao.antiimagem import executar_antiimagem
 from protecao.antifigu import executar_antifigu
 from protecao.antitrava import executar_antitrava
 from protecao.antiflod import executar_antiflod
+from protecao.antiencaminhar import executar_antiencaminhar
+from protecao.antienquete import executar_antienquete
 
 def get_db():
     mongo_uri = os.environ.get("MONGO_URI")
@@ -29,7 +31,9 @@ def obter_configs(chat_id: int):
         "antifoto": False,
         "antifigu": False,
         "antitravas": True,
-        "antiflood": True
+        "antiflood": True,
+        "antiencaminhar": True,
+        "antienquete": True
     }
     try:
         db = get_db()
@@ -123,6 +127,8 @@ def gerar_teclado_protecoes(cfg):
     s_figu = "🟢 Ligado" if cfg.get("antifigu", False) else "🔴 Desligado"
     s_trav = "🟢 Ligado" if cfg.get("antitravas", True) else "🔴 Desligado"
     s_flood = "🟢 Ligado" if cfg.get("antiflood", True) else "🔴 Desligado"
+    s_encam = "🟢 Ligado" if cfg.get("antiencaminhar", True) else "🔴 Desligado"
+    s_enq = "🟢 Ligado" if cfg.get("antienquete", True) else "🔴 Desligado"
 
     texto = "🛡️ **PAINEL DE STATUS E PROTEÇÕES DO GRUPO**"
 
@@ -133,6 +139,8 @@ def gerar_teclado_protecoes(cfg):
         [InlineKeyboardButton(f"🖼️ Anti-Figurinha: {s_figu}", callback_data="prot_toggle_antifigu")],
         [InlineKeyboardButton(f"⚠️ Anti-Travas: {s_trav}", callback_data="prot_toggle_antitravas")],
         [InlineKeyboardButton(f"⚡ Anti-Flood: {s_flood}", callback_data="prot_toggle_antiflood")],
+        [InlineKeyboardButton(f"📤 Anti-Encaminhar: {s_encam}", callback_data="prot_toggle_antiencaminhar")],
+        [InlineKeyboardButton(f"📊 Anti-Enquete: {s_enq}", callback_data="prot_toggle_antienquete")],
         [InlineKeyboardButton("⚙️ Configurar Punição", callback_data="menu_config_punicao")],
         [InlineKeyboardButton("🔙 Fechar Painel", callback_data="menu_fechar")]
     ])
@@ -293,7 +301,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not chat or not user or chat.type == "private" or not message:
         return
 
-    # Admins passam livremente
+    # Admins passam livremente por todas as proteções
     if await is_admin(update, context, user.id, chat.id):
         return
 
@@ -327,6 +335,16 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     # 6. Anti-Travas
     if cfg.get("antitravas", True):
         if await executar_antitrava(update, context, chat, user, message, get_db, is_admin, obter_punicao, salvar_punicao, apagar_aviso_futuro):
+            return
+
+    # 7. Anti-Encaminhar
+    if cfg.get("antiencaminhar", True):
+        if await executar_antiencaminhar(update, context, chat, user, message, get_db, is_admin, obter_punicao, salvar_punicao, apagar_aviso_futuro):
+            return
+
+    # 8. Anti-Enquete
+    if cfg.get("antienquete", True):
+        if await executar_antienquete(update, context, chat, user, message, get_db, is_admin, obter_punicao, salvar_punicao, apagar_aviso_futuro):
             return
 
 async def limpar_dados_grupo_removido(update: Update, context: ContextTypes.DEFAULT_TYPE):
