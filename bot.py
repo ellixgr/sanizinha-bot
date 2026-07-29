@@ -78,7 +78,11 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
+    user = update.effective_user
     if not chat or chat.type not in ["group","supergroup"]:
+        return
+    # ✅ SE FOR O DONO, NÃO FAZ NADA — DEIXA O BOT FICAR
+    if DONO_ID and str(user.id) == str(DONO_ID):
         return
     if await grupo_autorizado(chat.id):
         return
@@ -93,10 +97,18 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
+# ==============================================
+# ✅ AJUSTADO: SEMPRE LIBERA O DONO, MESMO EM GRUPOS NÃO AUTORIZADOS
+# ==============================================
 async def interceptador_grupos_nao_autorizados(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
+    user = update.effective_user
     if not chat or chat.type == "private":
         return
+    # ✅ SE FOR O DONO, DEIXA PASSAR TUDO
+    if DONO_ID and str(user.id) == str(DONO_ID):
+        return
+    # SE NÃO FOR DONO E GRUPO NÃO ESTIVER LIBERADO, BLOQUEIA
     if not await grupo_autorizado(chat.id):
         raise ApplicationHandlerStop
 
@@ -105,6 +117,9 @@ async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DE
     user = update.effective_user
     msg = update.message or update.effective_message
     if not chat or not user or chat.type == "private" or not msg:
+        return
+    # ✅ SE FOR O DONO, NÃO APLICA BLOQUEIO
+    if DONO_ID and str(user.id) == str(DONO_ID):
         return
     if not await grupo_autorizado(chat.id):
         return
@@ -115,6 +130,9 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
     chat = update.effective_chat
     user = update.effective_user
     if not chat or not user or chat.type == "private": return
+    # ✅ SE FOR O DONO, NÃO PRECISA CONTAR
+    if DONO_ID and str(user.id) == str(DONO_ID):
+        return
     if not await grupo_autorizado(chat.id): return
     msg = update.message
     if not msg: return
@@ -157,9 +175,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processar_callback_addgrupo(update, context, get_db, FUSO_BR)
         return
 
-    if chat.type != "private" and not await grupo_autorizado(chat.id):
-        await query.answer("❌ Grupo não autorizado!", show_alert=True)
-        return
+    # ✅ SE FOR O DONO, NÃO VERIFICA GRUPO
+    if not (DONO_ID and str(uid) == str(DONO_ID)):
+        if chat.type != "private" and not await grupo_autorizado(chat.id):
+            await query.answer("❌ Grupo não autorizado!", show_alert=True)
+            return
 
     if query.data == "menu_membros":
         await menu_membros_handler(update, context)
@@ -291,7 +311,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Sistema corrigido e funcionando!")
+    logger.info("🤖 Dono sempre liberado em qualquer lugar!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
