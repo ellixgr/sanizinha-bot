@@ -4,7 +4,7 @@ from datetime import timedelta
 
 REGISTRO_FLOOD_AVANCADO = {}
 
-async def executar_antiflod(update, context, chat, user, message, get_db, is_admin, obter_punicao, obter_menção_admins):
+async def executar_antiflod(update, context, chat, user, message, get_db, is_admin, obter_punicao, obter_mencao_admins):
     if not chat or not user or chat.type == "private":
         return False
 
@@ -41,7 +41,7 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
         except Exception:
             pass
 
-    mencoes_admins = await obter_menção_admins(chat, context)
+    mencoes_admins = await obter_mencao_admins(chat, context)
 
     try:
         if tipo_acao == "remover":
@@ -53,7 +53,7 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
                 f"🔔 Admins: {mencoes_admins}",
                 parse_mode="HTML"
             )
-            asyncio.create_task(destruir_aviso_depois(aviso))
+            asyncio.create_task(destruir_aviso_depois(context, aviso))
 
         elif tipo_acao == "silenciar":
             liberar_ate = timedelta(minutes=tempo_mute)
@@ -67,7 +67,7 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
                 f"🔔 Admins: {mencoes_admins}",
                 parse_mode="HTML"
             )
-            asyncio.create_task(destruir_aviso_depois(aviso))
+            asyncio.create_task(destruir_aviso_depois(context, aviso))
             
         else: # Ação padrão de aviso/mutar rápido
             liberar_ate = timedelta(minutes=2)
@@ -81,14 +81,14 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
                 f"🔔 Admins: {mencoes_admins}",
                 parse_mode="HTML"
             )
-            asyncio.create_task(destruir_aviso_depois(aviso))
+            asyncio.create_task(destruir_aviso_depois(context, aviso))
 
     except Exception as e:
         print(f"Erro ao aplicar punição de anti-flood: {e}")
 
     return True
 
-async def destruir_aviso_depois(mensagem):
+async def destruir_aviso_depois(context, mensagem):
     await asyncio.sleep(30)
     try:
         await mensagem.delete()
