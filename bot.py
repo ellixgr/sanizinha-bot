@@ -13,6 +13,9 @@ from comandos.menus import menu_membros_handler, menu_adm_handler
 from protecao.antiflod import executar_antiflod
 from protecao.status import obter_punicao, obter_mencao_admins_str
 
+# ✅ IMPORTA O NOVO COMANDO DO DONO
+from dono.addgrupo import cmd_addgrupo, processar_callback_addgrupo
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -39,9 +42,6 @@ def get_db():
         _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1000, connectTimeoutMS=1000, maxPoolSize=50, tlsAllowInvalidCertificates=True)
     return _mongo_client["sanizinhabot_db"]
 
-# ==============================================
-# ✅ VERIFICA SE O GRUPO TEM ALUGUEL ATIVO
-# ==============================================
 async def grupo_autorizado(chat_id: int) -> bool:
     try:
         db = get_db()
@@ -77,19 +77,12 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except: pass
     return False
 
-# ==============================================
-# ✅ QUANDO O BOT É ADICIONADO EM UM GRUPO
-# ==============================================
 async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if not chat or chat.type not in ["group","supergroup"]:
         return
-
-    # SE O GRUPO JÁ ESTÁ AUTORIZADO → NÃO FAZ NADA
     if await grupo_autorizado(chat.id):
         return
-
-    # SE NÃO ESTÁ AUTORIZADO → AVISA E SAI
     aviso = (
         "⚠️ **USO NÃO AUTORIZADO**\n\n"
         "Para usar este bot em seu grupo, é necessário contratar o plano de aluguel mensal.\n\n"
@@ -98,22 +91,16 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     botoes = InlineKeyboardMarkup([
         [InlineKeyboardButton("🤖 Contratar Plano", url=f"https://t.me/{context.bot.username}?start=aluguel")]
     ])
-
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-# ==============================================
-# ✅ INTERCEPTADOR: IGNORA TODOS OS COMANDOS EM GRUPOS NÃO AUTORIZADOS
-# ==============================================
 async def interceptador_grupos_nao_autorizados(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if not chat or chat.type == "private":
         return
-
     if not await grupo_autorizado(chat.id):
         raise ApplicationHandlerStop
 
-# INTERCEPTADOR DE FLOOD — SÓ FUNCIONA EM GRUPOS AUTORIZADOS
 async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -138,14 +125,12 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
         db["mensagens_usuarios"].update_one({"chat_id":chat.id,"user_id":user.id}, {"$inc":tipo}, upsert=True)
     except: pass
 
-# MENU INICIAL LIVRE PARA TODOS NO PRIVADO
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     agora = datetime.now(FUSO_BR)
     hora = agora.strftime("%H:%M:%S")
     data = agora.strftime("%d/%m/%Y")
-
     texto = (
         "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
         f"✰┃👤 : {user.first_name}\n"
@@ -154,17 +139,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✰┃☀️ : {data}\n"
         "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
     )
-
     botoes = [
         [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
         [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
-
     if DONO_ID and str(user.id) == str(DONO_ID):
         botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
-
     await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -172,7 +154,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     chat = query.message.chat
 
-    # EM GRUPOS SÓ PROSSEGUE SE FOR AUTORIZADO
+    # ✅ TRATA OS BOTÕES DO /addgrupo ANTES DE TUDO
+    if query.data.startswith("addgrupo_"):
+        await processar_callback_addgrupo(update, context)
+        return
+
     if chat.type != "private" and not await grupo_autorizado(chat.id):
         await query.answer("❌ Grupo não autorizado!", show_alert=True)
         return
@@ -264,9 +250,7 @@ def main():
     threading.Thread(target=run_web, daemon=True).start()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
-    # ✅ ORDEM DE PRIORIDADE: VERIFICA GRUPO ANTES DE TUDO
     app.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
-    # ✅ DETECTA QUANDO O BOT É ADICIONADO
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
     app.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
@@ -298,13 +282,16 @@ def main():
     setup_play(app); registrar_mutar(app); registrar_deploy(app); registrar_aluguel(app)
 
     app.add_handler(CommandHandler("lw", cmd_registrar_aluguel_dono))
+    # ✅ REGISTRA O NOVO COMANDO /addgrupo
+    app.add_handler(CommandHandler("addgrupo", cmd_addgrupo))
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Sistema de aluguel de grupos restaurado!")
+    logger.info("🤖 Comando /addgrupo adicionado com sucesso!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
