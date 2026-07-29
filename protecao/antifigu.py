@@ -5,6 +5,7 @@ async def executar_antifigu(update, context, chat, user, message, get_db, is_adm
     if await is_admin(update, context, user.id, chat.id):
         return False
 
+    # Validação rigorosa para qualquer tipo de figurinha (sticker)
     if not message.sticker:
         return False
 
