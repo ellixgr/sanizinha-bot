@@ -14,11 +14,16 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
     if chave_flood not in REGISTRO_FLOOD:
         REGISTRO_FLOOD[chave_flood] = []
     
-    REGISTRO_FLOOD[chave_flood] = [t for t in REGISTRO_FLOOD[chave_flood] if agora - t < 4]
+    # Mantém apenas as mensagens enviadas nos últimos 5 segundos
+    REGISTRO_FLOOD[chave_flood] = [t for t in REGISTRO_FLOOD[chave_flood] if agora - t < 5]
     REGISTRO_FLOOD[chave_flood].append(agora)
 
-    if len(REGISTRO_FLOOD[chave_flood]) <= 4:
+    # Dispara o flood se enviar mais de 3 mensagens em menos de 5 segundos
+    if len(REGISTRO_FLOOD[chave_flood]) < 3:
         return False
+
+    # Limpa o registro para evitar loops de avisos contínuos
+    REGISTRO_FLOOD[chave_flood] = []
 
     punicao = obter_punicao(chat.id)
     if punicao.get("apagar_msg", True):
