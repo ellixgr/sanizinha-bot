@@ -1,6 +1,6 @@
 import time
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timezone, timedelta
 
 REGISTRO_FLOOD_AVANCADO = {}
 
@@ -8,7 +8,8 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
     if not chat or not user or chat.type == "private":
         return False
 
-    # Admins passam livremente
+    # ATENÇÃO: Se você estiver testando sendo Admin ou Dono, o bot vai ignorar o flood propositalmente.
+    # Remova temporariamente esta linha se quiser testar sendo administrador:
     if await is_admin(update, context, user.id, chat.id):
         return False
 
@@ -22,7 +23,7 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
     REGISTRO_FLOOD_AVANCADO[chave_flood] = [t for t in REGISTRO_FLOOD_AVANCADO[chave_flood] if agora - t < 3]
     REGISTRO_FLOOD_AVANCADO[chave_flood].append(agora)
 
-    # Dispara se mandar 2 mensagens/comandos em sequência rápida (ex: segundo 1 e segundo 2)
+    # Dispara se mandar 2 mensagens/comandos em sequência rápida (menos de 3 segundos)
     if len(REGISTRO_FLOOD_AVANCADO[chave_flood]) < 2:
         return False
 
@@ -36,13 +37,13 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
         pass
 
     try:
-        # Silencia por 1 minuto (60 segundos)
-        liberar_ate = timedelta(minutes=1)
+        # Silencia por 1 minuto usando datetime UTC compatível com o Telegram API
+        liberar_ate = datetime.now(timezone.utc) + timedelta(minutes=1)
         await context.bot.restrict_chat_member(
             chat.id, user.id, permissions=False, until_date=liberar_ate
         )
         
-        # Responde marcando a mensagem do infeliz com o texto exato pedido
+        # Responde marcando o usuário com o texto solicitado
         aviso = await message.reply_text(
             f"⚠️ {user.mention_html()}, você está bloqueado de usar os comandos por 1 minuto por flodar o bot.",
             parse_mode="HTML"
