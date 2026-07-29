@@ -8,6 +8,7 @@ from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler, ApplicationHandlerStop
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
+from comandos.menus import menu_membros_handler, menu_adm_handler
 
 # Importações dos módulos de proteção
 from protecao.antiflod import executar_antiflod
@@ -50,18 +51,14 @@ def get_db():
     return _mongo_client["sanizinhabot_db"]
 
 # ==============================================
-# ✅ NOVA FUNÇÃO: VERIFICA SE USUÁRIO É CLIENTE PAGO
+# ✅ VERIFICA ASSINATURA
 # ==============================================
 async def eh_cliente_pago(user_id: int) -> bool:
-    """Verifica no MongoDB se o usuário tem assinatura ativa ou é o Dono"""
-    # Dono sempre tem acesso total
     if DONO_ID and str(user_id) == str(DONO_ID):
         return True
-    
     try:
         db = get_db()
         agora = time.time()
-        # Busca na coleção de clientes se tem plano ativo
         cliente = db["clientes_pagos"].find_one(
             {"user_id": user_id, "ativo": True, "expira_em": {"$gt": agora}}
         )
@@ -73,62 +70,41 @@ async def eh_cliente_pago(user_id: int) -> bool:
 async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-
     if not chat or chat.type == "private":
         await update.message.reply_text("⚠️ Este comando só pode ser usado dentro de grupos ou canais!")
         return
-
     if not DONO_ID or str(user.id) != str(DONO_ID):
         await update.message.reply_text("❌ Apenas o dono do bot pode utilizar este comando.")
         return
-
     db = get_db()
     agora = time.time()
     expira_em = agora + (10 * 365 * 24 * 60 * 60)
-
     db["grupos_autorizados"].update_one(
         {"chat_id": chat.id},
-        {
-            "$set": {
-                "chat_id": chat.id,
-                "chat_title": chat.title,
-                "registrado_por": user.id,
-                "expira_em": expira_em,
-                "ativo": True
-            }
-        },
+        {"$set": {"chat_id": chat.id, "chat_title": chat.title, "registrado_por": user.id, "expira_em": expira_em, "ativo": True}},
         upsert=True
     )
-
     db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
-
     await update.message.reply_text(
-        f"✅ **Grupo Registrado com Sucesso!**\n\n"
-        f"Este chat (`{chat.id}`) foi definido como alugado pelo Dono. "
-        f"Os avisos de cobrança foram desativados e o bot funcionará normalmente aqui!",
+        f"✅ **Grupo Registrado com Sucesso!**\n\nEste chat (`{chat.id}`) foi definido como alugado pelo Dono.",
         parse_mode="Markdown"
     )
 
 async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
     chat = update.effective_chat
-
     if DONO_ID and str(user_id) == str(DONO_ID):
         return True
-
     if chat.type in ["group", "supergroup"]:
         try:
             membro = await chat.get_member(user_id)
-            if membro.status in ["administrator", "creator"]:
-                return True
+            return membro.status in ["administrator", "creator"]
         except Exception:
             pass
-        return False
-    
     return False
 
 # ==============================================
-# ✅ NOVO INTERCEPTADOR: BLOQUEIA COMANDOS NO PRIVADO PARA NÃO CLIENTES
+# ✅ INTERCEPTADOR AJUSTADO: LIBERA MENUS, BLOQUEIA AÇÕES NO PRIVADO
 # ==============================================
 async def interceptador_privado_assinatura(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -136,370 +112,211 @@ async def interceptador_privado_assinatura(update: Update, context: ContextTypes
     message = update.message or update.effective_message
     query = update.callback_query
 
-    # Se NÃO for chat privado → ignora, deixa funcionar normalmente
     if not chat or chat.type != "private":
         return
 
     user_id = user.id
-
-    # Se for DONO ou CLIENTE PAGO → libera tudo
     if await eh_cliente_pago(user_id):
         return
 
-    # --------------------------
-    # BLOQUEIA MENSAGENS/COMANDOS NO PRIVADO
-    # --------------------------
+    # BLOQUEIA COMANDOS/MENSAGENS DIRETAS NO PRIVADO
     if message:
-        # Ignora o /start que é liberado para todos
         if message.text and message.text.strip() == "/start":
             return
-        
-        # Apaga mensagem e avisa
         try: await message.delete()
         except: pass
-        await update.effective_chat.send_message(
-            "⚠️ **Acesso Restrito!**\n\n"
-            "Para usar comandos, jogos, baixar mídias e outras funções no privado, "
-            "é necessário contratar o plano mensal.\n\n"
-            "Clique em **🤖 Alugar Bot** no menu principal para saber mais!",
+        await chat.send_message(
+            "⚠️ **Acesso Restrito!**\n\nComandos como /ping, /perfil, /play e outros só funcionam no privado para assinantes.\n\nClique em **🤖 Alugar Bot** para liberar tudo!",
             parse_mode="Markdown"
         )
         raise ApplicationHandlerStop
 
-    # --------------------------
-    # BLOQUEIA BOTÕES DE AÇÃO NO PRIVADO (Mantém apenas visualização dos menus)
-    # --------------------------
+    # CONTROLE DOS BOTÕES
     if query:
         dados = query.data
 
-        # LIBERA APENAS NAVEGAÇÃO BÁSICA (ver menus, voltar)
+        # ✅ LIBERA TUDO DE NAVEGAÇÃO E VISUALIZAÇÃO
         liberados = [
             "menu_membros", "menu_adm", "menu_aluguel", "voltar_menu", 
-            "ver_comandos", "voltar_principal_grupo"
+            "ver_comandos", "voltar_principal_grupo", "menu_jogos_atalho"
         ]
         if dados in liberados:
             return
 
-        # TUDO O RESTO É BLOQUEADO: ping, perfil, jogos, play, figurinhas etc.
-        await query.answer("⚠️ Função exclusiva para assinantes!", show_alert=True)
+        # ✅ SE FOR BOTÃO DE JOGO NO PRIVADO: MOSTRA AVISO QUE SÓ FUNCIONA EM GRUPO
+        if dados in ["jogo_velha", "jogo_memoria", "jogo_xadrez", "jogo_dama"]:
+            await query.answer("🎮 Jogos só funcionam dentro de grupos!", show_alert=True)
+            await query.message.reply_text(
+                "🎮 **Jogos em Grupo**\n\nEstes jogos só podem ser iniciados dentro de grupos com outros usuários!",
+                parse_mode="Markdown"
+            )
+            raise ApplicationHandlerStop
+
+        # ❌ TUDO O RESTO (PING, PERFIL, PLAY, ETC) BLOQUEADO
+        await query.answer("🔒 Função exclusiva para assinantes!", show_alert=True)
         await query.message.reply_text(
-            "🔒 **Função Bloqueada**\n\n"
-            "Este recurso só está disponível para quem contratar o plano mensal do bot.\n\n"
-            "Acesse o menu e clique em **🤖 Alugar Bot** para liberar tudo!",
+            "🔒 **Função Bloqueada**\n\nEste recurso só está disponível para quem contratar o plano mensal do bot.\n\nAcesse **🤖 Alugar Bot** no menu!",
             parse_mode="Markdown"
         )
         raise ApplicationHandlerStop
 
-# INTERCEPTADOR GLOBAL DE PROTEÇÕES (FLOOD) — SÓ NOS GRUPOS
+# INTERCEPTADOR DE FLOOD (SÓ GRUPOS)
 async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     message = update.message or update.effective_message
-    
     if not chat or not user or chat.type == "private" or not message:
         return
-
-    passou_flood = await executar_antiflod(
-        update, context, chat, user, message, 
-        get_db, verificar_se_e_adm, obter_punicao, obter_mencao_admins_str
-    )
-    if passou_flood:
+    if await executar_antiflod(update, context, chat, user, message, get_db, verificar_se_e_adm, obter_punicao, obter_mencao_admins_str):
         raise ApplicationHandlerStop
 
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    if not chat or not user:
+    if not chat or not user or chat.type == "private":
         return
-
     message = update.message
-    if not message or chat.type == "private":
-        return
-
-    tipo_incremento = {"total_mensagens": 1}
-    if message.photo:
-        tipo_incremento["fotos"] = 1
-    elif message.video:
-        tipo_incremento["videos"] = 1
-    elif message.voice or message.audio:
-        tipo_incremento["audios"] = 1
-    elif message.sticker:
-        tipo_incremento["stickers"] = 1
-
+    if not message: return
+    tipo = {"total_mensagens":1, "fotos":int(bool(message.photo)), "videos":int(bool(message.video)), "audios":int(bool(message.voice or message.audio)), "stickers":int(bool(message.sticker))}
     try:
         db = get_db()
-        db["mensagens_usuarios"].update_one(
-            {"chat_id": chat.id, "user_id": user.id},
-            {"$inc": tipo_incremento},
-            upsert=True
-        )
-    except Exception:
-        pass
+        db["mensagens_usuarios"].update_one({"chat_id":chat.id,"user_id":user.id}, {"$inc":tipo}, upsert=True)
+    except: pass
 
+# ==============================================
+# ✅ MENU INICIAL: BOTÃO DE ADICIONAR SÓ APARECE PARA PAGANTES
+# ==============================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-
     agora = datetime.now(FUSO_BR)
-    hora_atual = agora.strftime("%H:%M:%S")
-    data_atual = agora.strftime("%d/%m/%Y")
+    hora = agora.strftime("%H:%M:%S")
+    data = agora.strftime("%d/%m/%Y")
 
-    texto_menu = (
+    texto = (
         "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
         f"✰┃👤 : {user.first_name}\n"
         f"✰┃🆔 : `{user.id}`\n"
-        f"✰┃🕘 : {hora_atual}\n"
-        f"✰┃☀️ : {data_atual}\n"
-        "✰┃ 🤖 **BOT**\n"
-        "✪/ 🌬️ **Sanizinha** ®\n\n"
-        "┌──────────┐\n"
-        "   ≡  **M E N U S**  ≡\n"
-        "└──────────┘"
+        f"✰┃🕘 : {hora}\n"
+        f"✰┃☀️ : {data}\n"
+        "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
     )
 
+    # BOTÕES PADRÃO PARA TODOS
     botoes = [
         [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
         [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
-        [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
-        [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
+        [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")]
     ]
 
+    # SE FOR DONO OU PAGANTE → ADICIONA BOTÃO DE ADICIONAR GRUPO
+    if await eh_cliente_pago(user.id):
+        botoes.append([InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")])
+
+    # BOTÃO DO DONO
     if DONO_ID and str(user.id) == str(DONO_ID):
         botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
 
-    teclado_painel = InlineKeyboardMarkup(botoes)
-
-    await update.message.reply_text(
-        texto_menu,
-        reply_markup=teclado_painel,
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = update.effective_user.id
+    uid = update.effective_user.id
     chat = query.message.chat
 
     if query.data == "menu_membros":
-        await query.answer()
-        texto_membros = (
-            "📜 **Comandos para Membros:**\n\n"
-            "🏓 `/ping` - Status de hardware, RAM e latência\n"
-            "👤 `/perfil` - Suas estatísticas completas, bio e mídias\n"
-            "🆔 `/id` - Mostra seu ID e do chat\n"
-            "📥 `/play` ou `/dl` - Baixa vídeos e músicas do YouTube"
-        )
-        teclado_membros = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🏓 Ping", callback_data="botao_ping"), InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil_atalho")],
-            [InlineKeyboardButton("🆔 ID", callback_data="menu_id_atalho"), InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos_atalho")],
-            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
-        ])
-        await query.message.edit_text(texto_membros, reply_markup=teclado_membros, parse_mode="Markdown")
-        
+        await menu_membros_handler(update, context)
     elif query.data == "menu_adm":
-        await query.answer()
-        texto_adm = (
-            "🛡️ **Comandos para Administradores:**\n\n"
-            "🔨 `/ban` - Bane o usuário respondido\n"
-            "🔇 `/mutar` / `/desmutar` - Silencia ou libera o usuário\n"
-            "⭐ `/promover` - Promove a administrador\n"
-            "📉 `/rebaixar` - Rebaixa administrador\n"
-            "📢 `/marcar` - Marca todos do grupo\n"
-            "📌 `/citar` - Cita mídias/textos marcando todos\n"
-            "⚙️ `/status` - Configura as travas de segurança\n"
-            "👋 Configurar Bem-Vindo abaixo:"
-        )
-        teclado_adm = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛡️ Proteções do Grupo", callback_data="menu_protecoes")],
-            [InlineKeyboardButton("👋 Configurar Bem-Vindo", callback_data="config_bemvindo")],
-            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
-        ])
-        await query.message.edit_text(texto_adm, reply_markup=teclado_adm, parse_mode="Markdown")
-
+        await menu_adm_handler(update, context)
     elif query.data == "menu_dono":
-        if not DONO_ID or str(user_id) != str(DONO_ID):
-            await query.answer("⚠️ Acesso negado!", show_alert=True)
+        if str(uid)!=str(DONO_ID):
+            await query.answer("Acesso negado!", show_alert=True)
             return
         await query.answer()
-        texto_dono = (
-            "🛠️ **Painel Exclusivo do Dono**\n\n"
-            "Gerencie atualizações e compilações completas do bot diretamente por aqui:"
+        await query.message.edit_text(
+            "🛠️ **Painel Exclusivo do Dono**",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Executar Deploy", callback_data="executar_deploy")],[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu")]]),
+            parse_mode="Markdown"
         )
-        teclado_dono = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚀 Clear Build Cache & Deploy", callback_data="executar_deploy")],
-            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
-        ])
-        await query.message.edit_text(texto_dono, reply_markup=teclado_dono, parse_mode="Markdown")
-
     elif query.data == "executar_deploy":
-        if not DONO_ID or str(user_id) != str(DONO_ID):
-            await query.answer("⚠️ Acesso negado!", show_alert=True)
+        if str(uid)!=str(DONO_ID):
+            await query.answer("Negado!", show_alert=True)
             return
         from comandos.deploy import executar_clear_deploy
         await executar_clear_deploy(update, context)
-
     elif query.data == "config_bemvindo":
         if not await verificar_se_e_adm(update, context):
-            await query.answer("⚠️ Apenas administradores do grupo podem configurar o Bem-Vindo!", show_alert=True)
+            await query.answer("Só ADM!", show_alert=True)
             return
-        await query.answer()
-        try:
-            from comandos.bemvindo import enviar_painel_principal_bv
-            await enviar_painel_principal_bv(context, update.effective_chat.id, query=query)
-        except Exception as e:
-            await query.message.reply_text(f"⚠️ Erro ao abrir o painel de boas-vindas: {e}")
-
+        from comandos.bemvindo import enviar_painel_principal_bv
+        await enviar_painel_principal_bv(context, chat.id, query=query)
     elif query.data == "menu_protecoes":
         if not await verificar_se_e_adm(update, context):
-            await query.answer("⚠️ Apenas administradores do grupo podem configurar as Proteções!", show_alert=True)
+            await query.answer("Só ADM!", show_alert=True)
             return
-        await query.answer()
-        try:
-            from protecao.status import enviar_painel_protecoes
-            await enviar_painel_protecoes(update, context)
-        except Exception as e:
-            await query.message.reply_text(f"⚠️ Erro ao abrir o painel de proteções: {e}")
-
+        from protecao.status import enviar_painel_protecoes
+        await enviar_painel_protecoes(update, context)
     elif query.data == "menu_config_punicao":
         if not await verificar_se_e_adm(update, context):
-            await query.answer("⚠️ Apenas administradores do grupo podem configurar as punições!", show_alert=True)
+            await query.answer("Só ADM!", show_alert=True)
             return
-        try:
-            from protecao.status import enviar_painel_punicao
-            await enviar_painel_punicao(update, context)
-        except Exception as e:
-            await query.message.reply_text(f"⚠️ Erro ao abrir o painel de punições: {e}")
-
-    elif query.data.startswith(("prot_", "pun_", "menu_fechar")):
+        from protecao.status import enviar_painel_punicao
+        await enviar_painel_punicao(update, context)
+    elif query.data.startswith(("prot_","pun_","menu_fechar")):
         if not await verificar_se_e_adm(update, context):
-            await query.answer("⚠️ Apenas administradores podem alterar estas opções!", show_alert=True)
+            await query.answer("Negado!", show_alert=True)
             return
-        try:
-            from protecao.status import processar_callback_protecao
-            await processar_callback_protecao(update, context)
-        except Exception as e:
-            await query.answer(f"⚠️ Erro: {e}", show_alert=True)
-
+        from protecao.status import processar_callback_protecao
+        await processar_callback_protecao(update, context)
     elif query.data == "botao_ping":
-        await query.answer("Calculando ping...", show_alert=False)
         from comandos.ping import ping_cmd
         await ping_cmd(update, context)
-
     elif query.data == "menu_perfil_atalho":
         await query.answer()
-        if chat.type == "private":
-            await query.message.reply_text("⚠️ Use este comando dentro de um grupo para ver suas estatísticas completas!")
+        if chat.type=="private":
+            await query.message.reply_text("⚠️ Use em grupos!", parse_mode="Markdown")
             return
-        
-        total_msgs, fotos, videos, audios, stickers = 1, 0, 0, 0, 0
         try:
-            db = get_db()
-            doc = db["mensagens_usuarios"].find_one({"chat_id": chat.id, "user_id": user_id})
-            if doc:
-                total_msgs = doc.get("total_mensagens", 1)
-                fotos = doc.get("fotos", 0)
-                videos = doc.get("videos", 0)
-                audios = doc.get("audios", 0)
-                stickers = doc.get("stickers", 0)
-            
-            total_grupo = db["mensagens_usuarios"].aggregate([
-                {"$match": {"chat_id": chat.id}},
-                {"$group": {"_id": None, "soma": {"$sum": "$total_mensagens"}}}
-            ])
-            soma_doc = list(total_grupo)
-            total_geral_grupo = soma_doc[0]["soma"] if soma_doc else 1
-            atividade_pct = min((total_msgs / total_geral_grupo) * 100, 100.0)
-        except Exception:
-            atividade_pct = 0.0
-
-        bio = "Não configurada ou oculta."
-        try:
-            chat_info = await context.bot.get_chat(user_id)
-            if chat_info.bio:
-                bio = chat_info.bio
-        except Exception:
-            pass
-
-        user_obj = update.effective_user
-        texto_perfil = (
-            f"👤 **PERFIL DE {user_obj.first_name.upper()}**\n\n"
-            f"🆔 **ID:** `{user_id}`\n"
-            f"💬 **Bio:** _{bio}_\n\n"
-            f"📊 **ESTATÍSTICAS NO GRUPO:**\n"
-            f"💬 Mensagens Totais: `{total_msgs}`\n"
-            f"📸 Fotos Enviadas: `{fotos}`\n"
-            f"🎥 Vídeos Enviados: `{videos}`\n"
-            f"🎙️ Áudios/Voz: `{audios}`\n"
-            f"🎭 Figurinhas: `{stickers}`\n"
-            f"⚡ Índice de Atividade: `{atividade_pct:.1f}%`"
+            db=get_db()
+            doc=db["mensagens_usuarios"].find_one({"chat_id":chat.id,"user_id":uid}) or {}
+            total=doc.get("total_mensagens",1)
+            fotos=doc.get("fotos",0)
+            videos=doc.get("videos",0)
+            audios=doc.get("audios",0)
+            sticks=doc.get("stickers",0)
+            soma=list(db["mensagens_usuarios"].aggregate([{"$match":{"chat_id":chat.id}},{"$group":{"_id":None,"s":{"$sum":"$total_mensagens"}}}]))
+            total_geral=soma[0]["s"] if soma else 1
+            pct=min((total/total_geral)*100,100)
+        except: pct=0
+        bio="Não configurada."
+        try: bio=(await context.bot.get_chat(uid)).bio or bio
+        except: pass
+        await query.message.edit_text(
+            f"👤 **PERFIL**\n🆔 `{uid}`\n💬 {bio}\n📊 Grupo: `{total}` msg | {fotos} fotos | {videos} vídeos | {audios} áudios | {sticks} figurinhas\n⚡ {pct:.1f}%",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_membros")]]),
+            parse_mode="Markdown"
         )
-        teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_membros")]])
-        await query.message.edit_text(texto_perfil, reply_markup=teclado_voltar, parse_mode="Markdown")
-
     elif query.data == "menu_id_atalho":
-        await query.answer()
-        texto = f"🆔 **Seu ID:** `{user_id}`\n"
-        if chat.type in ["group", "supergroup"]:
-            texto += f"🏢 **ID do Grupo:** `{chat.id}`"
-        teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_membros")]])
-        await query.message.edit_text(texto, reply_markup=teclado_voltar, parse_mode="Markdown")
-
+        txt=f"🆔 Seu ID: `{uid}`"
+        if chat.type!="private": txt+=f"\n🏢 ID Grupo: `{chat.id}`"
+        await query.message.edit_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_membros")]]), parse_mode="Markdown")
     elif query.data == "menu_jogos_atalho":
         await menu_jogos_handler(update, context)
-
-    elif query.data in ["jogo_velha", "jogo_memoria", "jogo_xadrez", "jogo_dama"]:
+    elif query.data in ["jogo_velha","jogo_memoria","jogo_xadrez","jogo_dama"]:
         await processar_callback_jogos(update, context)
-
-    elif query.data in ["voltar_menu", "ver_comandos", "voltar_principal_grupo"]:
-        await query.answer()
-        
-        agora = datetime.now(FUSO_BR)
-        hora_atual = agora.strftime("%H:%M:%S")
-        data_atual = agora.strftime("%d/%m/%Y")
-
-        texto_ajuda = (
-            "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
-            f"✰┃👤 : {update.effective_user.first_name}\n"
-            f"✰┃🆔 : `{update.effective_user.id}`\n"
-            f"✰┃🕘 : {hora_atual}\n"
-            f"✰┃☀️ : {data_atual}\n"
-            "✰┃ 🤖 **BOT**\n"
-            "✪/ 🌬️ **Sanizinha** ®\n\n"
-            "┌──────────┐\n"
-            "   ≡  **M E N U S**  ≡\n"
-            "└──────────┘"
-        )
-        
-        botoes_voltar = [
-            [InlineKeyboardButton("📜 Ver todos comandos de membros", callback_data="menu_membros")],
-            [InlineKeyboardButton("🛡️ Ver todos comandos de ADM", callback_data="menu_adm")],
-            [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
-            [InlineKeyboardButton("🏓 Ping do Bot", callback_data="botao_ping")],
-            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
-        ]
-        if DONO_ID and str(user_id) == str(DONO_ID):
-            botoes_voltar.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
-
-        await query.message.edit_text(texto_ajuda, reply_markup=InlineKeyboardMarkup(botoes_voltar), parse_mode="Markdown")
+    elif query.data in ["voltar_menu","ver_comandos","voltar_principal_grupo"]:
+        await start(update, context)
 
 def main():
     threading.Thread(target=run_web, daemon=True).start()
-    
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
-    # ==============================================
-    # ✅ PRIORIDADE MÁXIMA: VERIFICA ASSINATURA NO PRIVADO ANTES DE TUDO
-    # ==============================================
+    # ORDEM DE PRIORIDADE
     app.add_handler(TypeHandler(Update, interceptador_privado_assinatura), group=-2)
-
-    # INTERCEPTADOR DE FLOOD → PRIORIDADE -1 (SÓ NOS GRUPOS)
-    app.add_handler(MessageHandler(
-        (filters.TEXT | filters.COMMAND | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Sticker.ALL) & ~filters.ChatType.PRIVATE,
-        interceptador_geral_protecoes
-    ), group=-1)
-
+    app.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
+    # REGISTRO DOS MÓDULOS
     from comandos.ping import registrar_ping
     from comandos.id import registrar_id
     from comandos.perfil import registrar_perfil
@@ -515,35 +332,18 @@ def main():
     from comandos.rank import registrar_rank
     from comandos.figurinha import registrar_figurinha
     from comandos.aluguel import registrar_aluguel
-
     from comandos.jogos.velha import setup_velha
     from comandos.jogos.memoria import setup_memoria
     from comandos.jogos.dama import setup_dama
     from comandos.jogos.xadrez import setup_xadrez
 
-    setup_velha(app)
-    setup_memoria(app)
-    setup_dama(app)
-    setup_xadrez(app)
-    
-    registrar_figurinha(app)
-    registrar_promover(app)
-    registrar_rank(app)
-    registrar_marcar(app)
-    registrar_citar(app)
-    registrar_protecoes(app)
-    registrar_comandos_bv(app)
-    registrar_ping(app)
-    registrar_id(app)
-    registrar_perfil(app)
-    registrar_ban(app)
-    setup_play(app)
-    registrar_mutar(app)
-    registrar_deploy(app)
-    registrar_aluguel(app)
+    setup_velha(app); setup_memoria(app); setup_dama(app); setup_xadrez(app)
+    registrar_figurinha(app); registrar_promover(app); registrar_rank(app); registrar_marcar(app)
+    registrar_citar(app); registrar_protecoes(app); registrar_comandos_bv(app)
+    registrar_ping(app); registrar_id(app); registrar_perfil(app); registrar_ban(app)
+    setup_play(app); registrar_mutar(app); registrar_deploy(app); registrar_aluguel(app)
 
     app.add_handler(CommandHandler("lw", cmd_registrar_aluguel_dono))
-
     app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
@@ -551,7 +351,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Bot rodando com sistema de assinatura e proteções ativas!")
+    logger.info("🤖 Sistema de assinatura e menus ajustado com sucesso!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
