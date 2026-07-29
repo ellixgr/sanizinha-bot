@@ -2,26 +2,22 @@ import time
 from datetime import datetime, timedelta, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from pymongo import MongoClient
 
-# Importa as variáveis e função do bot principal
-from bot import get_db, DONO_ID, FUSO_BR
+# ❌ REMOVA ESSA LINHA: from bot import get_db, DONO_ID, FUSO_BR
 
-async def cmd_addgrupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ✅ RECEBE OS VALORES POR PARÂMETRO, NÃO IMPORTA
+async def cmd_addgrupo(update: Update, context: ContextTypes.DEFAULT_TYPE, get_db, DONO_ID, FUSO_BR):
     chat = update.effective_chat
     user = update.effective_user
 
-    # Verifica se é o DONO
     if not DONO_ID or str(user.id) != str(DONO_ID):
         await update.message.reply_text("❌ Apenas o dono do bot pode usar este comando!")
         return
 
-    # Verifica se está em grupo
     if not chat or chat.type not in ["group", "supergroup"]:
         await update.message.reply_text("⚠️ Use este comando DENTRO do grupo que deseja registrar!")
         return
 
-    # Inicia contador de meses na sessão
     context.user_data["meses_aluguel"] = 1
     context.user_data["grupo_add_id"] = chat.id
     context.user_data["grupo_add_nome"] = chat.title
@@ -56,14 +52,14 @@ async def exibir_painel_adicionar(update: Update, context: ContextTypes.DEFAULT_
     else:
         await update.message.reply_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-async def processar_callback_addgrupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def processar_callback_addgrupo(update: Update, context: ContextTypes.DEFAULT_TYPE, get_db, FUSO_BR):
     query = update.callback_query
     await query.answer()
     dados = query.data
 
     if dados == "addgrupo_aumentar":
         atual = context.user_data.get("meses_aluguel", 1)
-        if atual < 24:  # Limite de 2 anos
+        if atual < 24:
             context.user_data["meses_aluguel"] = atual + 1
         await exibir_painel_adicionar(update, context)
 
@@ -84,7 +80,7 @@ async def processar_callback_addgrupo(update: Update, context: ContextTypes.DEFA
 
         db = get_db()
         agora = time.time()
-        expira_em = agora + (meses * 30 * 24 * 60 * 60)  # 30 dias por mês
+        expira_em = agora + (meses * 30 * 24 * 60 * 60)
 
         db["grupos_autorizados"].update_one(
             {"chat_id": chat_id},
