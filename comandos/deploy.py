@@ -108,5 +108,6 @@ async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def registrar_deploy(app):
     app.add_handler(CommandHandler("cleardeploy", cmd_clear_deploy))
     
-    # Executa a checagem ao iniciar de forma nativa via asyncio, evitando qualquer aviso de JobQueue
-    asyncio.create_task(checar_deploy_pendente_ao_iniciar(app))
+    # Maneira segura e nativa do PTB v20+ de rodar funções assíncronas logo na inicialização sem erro de event loop
+    if app.job_queue:
+        app.job_queue.run_once(lambda ctx: asyncio.create_task(checar_deploy_pendente_ao_iniciar(app)), when=1)
