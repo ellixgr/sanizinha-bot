@@ -5,13 +5,13 @@ async def executar_antiencaminhar(update, context, chat, user, message, get_db, 
     if await is_admin(update, context, user.id, chat.id):
         return False
 
-    # Verifica se a mensagem foi encaminhada de qualquer outra fonte externa
-    veio_encaminhado = bool(
-        message.forward_date or 
-        message.forward_from or 
-        message.forward_from_chat or 
-        message.forward_origin
-    )
+    # Verificação totalmente segura de encaminhamento
+    veio_encaminhado = False
+    try:
+        if getattr(message, "forward_date", None) or getattr(message, "forward_from", None) or getattr(message, "forward_from_chat", None) or getattr(message, "forward_origin", None):
+            veio_encaminhado = True
+    except Exception:
+        pass
 
     if not veio_encaminhado:
         return False
