@@ -9,7 +9,6 @@ async def executar_antimencao(update, context, chat, user, message, get_db, is_a
     texto = message.text or message.caption or ""
     chat_username = (chat.username or "").lower()
     
-    # Pega o username do próprio bot em execução para nunca punir menções a ele mesmo
     bot_username = ""
     try:
         bot_username = (context.bot.username or "").lower()
@@ -24,27 +23,29 @@ async def executar_antimencao(update, context, chat, user, message, get_db, is_a
     except Exception:
         pass
 
-    # Coleta menções via Entidades do Telegram
-    tem_mencao_externa = False
+    # Coleta menções via Entidades do Telegram (ex: menções diretas de usuários/bots na mensagem)
+    tem_mencao_bot_externo = False
     entities = message.entities or message.caption_entities or []
     for ent in entities:
         if ent.type in ["mention", "text_link", "bot_command"]:
             mention_text = texto[ent.offset:ent.offset + ent.length].lower()
             
-            # Ignora se for menção ao próprio grupo ou ao próprio bot
+            # Se for menção ao próprio grupo ou ao nosso bot, ignora totalmente
             if chat_username and chat_username in mention_text:
                 continue
             if bot_username and bot_username in mention_text:
                 continue
-                
-            # Se for comando do tipo /start@BotDoGrupo, também ignora
             if ent.type == "bot_command" and bot_username and f"@{bot_username}" in mention_text:
                 continue
                 
-            tem_mencao_externa = True
-            break
+            # Regra principal solicitada: Só pune se terminar com "bot" (indicando que é um bot externo/desconhecido)
+            # Menções a pessoas reais como @joao não terminam em "bot", logo passam direto e livremente.
+            limpo_mention = mention_text.replace("@", "").strip()
+            if limpo_mention.endswith("bot"):
+                tem_mencao_bot_externo = True
+                break
 
-    # Varredura por Regex de arrobas e links t.me
+    # Varredura por Regex de arrobas e links t.me no texto livre
     padrao_mencao = r"(@[A-Za-z0-9_]{5,}|t\.me/[A-Za-z0-9_]+)"
     mencoes_texto = re.findall(padrao_mencao, texto, re.IGNORECASE)
     
@@ -56,10 +57,15 @@ async def executar_antimencao(update, context, chat, user, message, get_db, is_a
                 continue
             if bot_username and bot_username in m_lower:
                 continue
-            mencao_externa_texto = True
-            break
+            
+            # Verifica se o arroba mencionado termina com "bot" (ex: @salalalbot)
+            # Usuários normais (como @joao) não terminam com "bot", então não acionam punição.
+            alvo_usuario = m_lower.split("/")[-1].replace("@", "")
+            if alvo_usuario.endswith("bot"):
+                mencao_externa_texto = True
+                break
 
-    if not (veio_encaminhado or tem_mencao_externa or mencao_externa_texto):
+    if not (veio_encaminhado or tem_mencao_bot_externo or mencao_externa_texto):
         return False
 
     punicao = obter_punicao(chat.id)
@@ -79,7 +85,7 @@ async def executar_antimencao(update, context, chat, user, message, get_db, is_a
     if tipo_acao == "remover":
         try:
             await context.bot.ban_chat_member(chat.id, user.id)
-            aviso = await chat.send_message(f"🚨 {user.mention_html()} foi banido(a) por mencionar canais/bots externos ou encaminhar conteúdos.", parse_mode="HTML")
+            aviso = await chat.send_message(f"🚨 {user.mention_html()} foi banido(a) por mencionar bots externos que não estão no grupo ou encaminhar conteúdos.", parse_mode="HTML")
             asyncio.create_task(apagar_aviso_futuro(context, aviso))
         except Exception:
             pass
@@ -87,7 +93,7 @@ async def executar_antimencao(update, context, chat, user, message, get_db, is_a
         try:
             liberar_ate = timedelta(minutes=punicao["tempo_mute"])
             await context.bot.restrict_chat_member(chat.id, user.id, permissions=False, until_date=liberar_ate)
-            aviso = await chat.send_message(f"🔇 {user.mention_html()} foi silenciado(a) por menção externa.", parse_mode="HTML")
+            aviso = await chat.send_message(f"🔇 {user.mention_html()} foi silenciado(a) por menção a bot externo.", parse_mode="HTML")
             asyncio.create_task(apagar_aviso_futuro(context, aviso))
         except Exception:
             pass
@@ -96,13 +102,13 @@ async def executar_antimencao(update, context, chat, user, message, get_db, is_a
         if avisos >= 2:
             try:
                 await context.bot.ban_chat_member(chat.id, user.id)
-                aviso = await chat.send_message(f"🚨 {user.mention_html()} foi banido(a) por insistir em menções externas.", parse_mode="HTML")
+                aviso = await chat.send_message(f"🚨 {user.mention_html()} foi banido(a) por insistir em mencionar bots externos.", parse_mode="HTML")
                 col.delete_one(chave)
                 asyncio.create_task(apagar_aviso_futuro(context, aviso))
             except Exception:
                 pass
         else:
             col.update_one(chave, {"$set": {"avisos": avisos}}, upsert=True)
-            aviso = await chat.send_message(f"⚠️ {user.mention_html()}, proibido menções a outros bots ou canais aqui! (1/2)", parse_mode="HTML")
+            aviso = await chat.send_message(f"⚠️ {user.mention_html()}, proibido menções a bots externos aqui! (1/2)", parse_mode="HTML")
             asyncio.create_task(apagar_aviso_futuro(context, aviso))
     return True
