@@ -34,6 +34,7 @@ async def menu_adm_handler(update, context):
         "📢 `/marcar` - Marca todos do grupo\n"
         "📌 `/citar` - Cita mídias/textos marcando todos\n"
         "⚙️ `/protecao` - Configura as travas de segurança\n"
+        "🎵 `/addcookie` - para o play funciona"
         "👋 Configurar Bem-Vindo abaixo:"
     )
     
