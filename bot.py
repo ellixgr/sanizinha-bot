@@ -405,7 +405,7 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
     # Interceptador global de proteções (Anti-Flood, Anti-Menção) rodando no grupo 1
-    app.add_handler(MessageHandler(filters.ALL & ~filters.ChatType.PRIVATE, interceptador_geral_protecoes), group=1)
+    app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.VOICE | filters.Sticker.ALL) & ~filters.ChatType.PRIVATE, interceptador_geral_protecoes), group=1)
 
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
