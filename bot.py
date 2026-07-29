@@ -77,7 +77,7 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return False
 
 # ==============================================
-# ✅ INTERCEPTADOR 100% AJUSTADO: NÃO BLOQUEIA MENUS NEM ALUGUEL
+# ✅ INTERCEPTADOR CORRIGIDO: NÃO BLOQUEIA /START, NÃO BLOQUEIA NENHUM MENU
 # ==============================================
 async def interceptador_privado_assinatura(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -92,10 +92,15 @@ async def interceptador_privado_assinatura(update: Update, context: ContextTypes
     if await eh_cliente_pago(uid):
         return
 
-    # BLOQUEIA APENAS COMANDOS DIRETOS NO PRIVADO
+    # --------------------------
+    # BLOQUEIA APENAS COMANDOS DIRETOS — NÃO TOCA NO /START
+    # --------------------------
     if msg:
-        if msg.text and msg.text.strip() == "/start":
+        texto = msg.text.strip() if msg.text else ""
+        # LIBERA SEMPRE O /START
+        if texto == "/start" or texto.startswith("/start "):
             return
+        # BLOQUEIA TODOS OS OUTROS COMANDOS/MENSAGENS
         try: await msg.delete()
         except: pass
         await chat.send_message(
@@ -104,25 +109,28 @@ async def interceptador_privado_assinatura(update: Update, context: ContextTypes
         )
         raise ApplicationHandlerStop
 
-    # LIBERA TODA NAVEGAÇÃO — NENHUM MENU É BLOQUEADO
+    # --------------------------
+    # LIBERA TODOS OS BOTÕES DE NAVEGAÇÃO — NENHUM MENU É BLOQUEADO
+    # --------------------------
     if query:
         dados = query.data
 
-        # ✅ TODOS OS MENUS E NAVEGAÇÃO LIBERADOS PARA QUALQUER UM
+        # ✅ TODOS OS MENUS, ALUGUEL E NAVEGAÇÃO LIBERADOS PARA TODOS
         liberados = [
             "menu_membros", "menu_adm", "menu_aluguel", "voltar_menu",
-            "ver_comandos", "voltar_principal_grupo", "menu_jogos_atalho"
+            "ver_comandos", "voltar_principal_grupo", "menu_jogos_atalho",
+            "1_mes", "3_meses", "6_meses", "12_meses", "gerar_pix", "voltar_menu_aluguel"
         ]
         if dados in liberados:
             return
 
-        # SE FOR BOTÃO DE JOGO NO PRIVADO: AVISA QUE SÓ FUNCIONA EM GRUPO
+        # ✅ JOGOS: AVISA QUE SÓ FUNCIONAM EM GRUPO
         if dados in ["jogo_velha","jogo_memoria","jogo_xadrez","jogo_dama"]:
             await query.answer("🎮 Jogos só funcionam em grupos!", show_alert=True)
             await query.message.reply_text("🎮 Inicie jogos apenas dentro de grupos!", parse_mode="Markdown")
             raise ApplicationHandlerStop
 
-        # TUDO O RESTO (EXECUÇÃO DE FUNÇÕES) BLOQUEADO
+        # ❌ APENAS AÇÕES EXECUTÁVEIS SÃO BLOQUEADAS
         await query.answer("🔒 Função exclusiva para assinantes!", show_alert=True)
         await query.message.reply_text(
             "🔒 Contrate o plano mensal para usar este recurso no privado.",
@@ -152,7 +160,7 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
     except: pass
 
 # ==============================================
-# ✅ MENU INICIAL: ALUGUEL APARECE PARA TODOS; ADICIONAR GRUPO SÓ PRA PAGANTES
+# ✅ MENU INICIAL CORRIGIDO
 # ==============================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -170,18 +178,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
     )
 
-    # BOTÕES PADRÃO PARA TODOS — INCLUINDO ALUGUEL
     botoes = [
         [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
         [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")]
     ]
 
-    # ADICIONA BOTÃO DE GRUPO SÓ SE FOR PAGO OU DONO
     if await eh_cliente_pago(user.id):
         botoes.append([InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")])
 
-    # BOTÃO DO DONO
     if DONO_ID and str(user.id) == str(DONO_ID):
         botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
 
@@ -279,6 +284,8 @@ def main():
     threading.Thread(target=run_web, daemon=True).start()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
+    # ✅ ORDEM CORRETA: INTERCEPTADOR DEPOIS DO /START, ANTES DOS DEMAIS
+    app.add_handler(CommandHandler("start", start))
     app.add_handler(TypeHandler(Update, interceptador_privado_assinatura), group=-2)
     app.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
@@ -314,10 +321,9 @@ def main():
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
 
-    app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Sistema corrigido: menus livres, só funções bloqueadas!")
+    logger.info("🤖 Sistema corrigido: /start e menus 100% liberados!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
