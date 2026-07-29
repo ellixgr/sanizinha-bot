@@ -24,13 +24,16 @@ def obter_configs(chat_id: int):
         db = get_db()
         doc = db["configs_protecao"].find_one({"chat_id": chat_id})
         if doc and "configs" in doc:
-            return doc["configs"]
+            cfg = doc["configs"]
+            if "antimencao" not in cfg:
+                cfg["antimencao"] = False
+            return cfg
     except Exception:
         pass
     
-    # Padrão caso não exista
     padrao = {
         "antilink": False,
+        "antimencao": False,
         "antifoto": False,
         "antifigu": False,
         "antitravas": False,
@@ -58,7 +61,6 @@ def obter_punicao(chat_id: int):
     except Exception:
         pass
         
-    # Padrão caso não exista
     padrao = {
         "acao": "aviso_ban",
         "apagar_msg": True,
@@ -78,7 +80,7 @@ def salvar_punicao(chat_id: int, punicao: dict):
         pass
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> bool:
-    if chat_id > 0:  # Chat privado
+    if chat_id > 0:  
         return True
     try:
         member = await context.bot.get_chat_member(chat_id, user_id)
@@ -89,16 +91,18 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: 
     return False
 
 def gerar_teclado_protecoes(cfg):
-    s_link = "🟢 Ligado" if cfg["antilink"] else "🔴 Desligado"
-    s_foto = "🟢 Ligado" if cfg["antifoto"] else "🔴 Desligado"
-    s_figu = "🟢 Ligado" if cfg["antifigu"] else "🔴 Desligado"
-    s_trav = "🟢 Ligado" if cfg["antitravas"] else "🔴 Desligado"
-    s_flood = "🟢 Ligado" if cfg["antiflood"] else "🔴 Desligado"
+    s_link = "🟢 Ligado" if cfg.get("antilink", False) else "🔴 Desligado"
+    s_mencao = "🟢 Ligado" if cfg.get("antimencao", False) else "🔴 Desligado"
+    s_foto = "🟢 Ligado" if cfg.get("antifoto", False) else "🔴 Desligado"
+    s_figu = "🟢 Ligado" if cfg.get("antifigu", False) else "🔴 Desligado"
+    s_trav = "🟢 Ligado" if cfg.get("antitravas", False) else "🔴 Desligado"
+    s_flood = "🟢 Ligado" if cfg.get("antiflood", True) else "🔴 Desligado"
 
     texto = "🛡️ **PAINEL DE PROTEÇÕES DO GRUPO**"
 
     teclado = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"🔗 Anti-Link: {s_link}", callback_data="prot_toggle_antilink")],
+        [InlineKeyboardButton(f"📢 Anti-Menção: {s_mencao}", callback_data="prot_toggle_antimencao")],
         [InlineKeyboardButton(f"📸 Anti-Foto: {s_foto}", callback_data="prot_toggle_antifoto")],
         [InlineKeyboardButton(f"🖼️ Anti-Figurinha: {s_figu}", callback_data="prot_toggle_antifigu")],
         [InlineKeyboardButton(f"⚠️ Anti-Travas: {s_trav}", callback_data="prot_toggle_antitravas")],
@@ -258,6 +262,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not chat or not user or chat.type == "private" or not message:
         return
 
+    # SE FOR ADMINISTRADOR OU DONO, O BOT NÃO PUNE NADA E LIBERA TUDO
     if await is_admin(update, context, user.id, chat.id):
         return
 
@@ -268,7 +273,8 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     motivo_violacao = ""
     eh_flood = False
 
-    if cfg["antiflood"]:
+    # 1. Anti-Flood
+    if cfg.get("antiflood", True):
         agora = time.time()
         chave = (chat.id, user.id)
         if chave not in REGISTRO_FLOOD:
@@ -283,23 +289,65 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             motivo_violacao = "flood de mensagens/comandos"
 
     if not eh_flood:
-        if cfg["antilink"]:
+        chat_username = chat.username or ""
+        chat_invite_link = chat.invite_link or ""
+
+        # 2. Anti-Link
+        if cfg.get("antilink", False):
             ignorar_chatbot = f"@{context.bot.username}" in texto_conteudo and message.text and message.text.startswith("/start")
             if not ignorar_chatbot:
-                padrao_link = r"(https?://\S+|t\.me/\S+|www\.\S+|@[A-Za-z0-9_]{5,}|tg://\S+)"
-                if message.forward_origin or re.search(padrao_link, texto_conteudo, re.IGNORECASE):
-                    violacao_detectada = True
-                    motivo_violacao = "link, canal ou menção externa"
+                padrao_link = r"(https?://\S+|www\.\S+|t\.me/\S+|chat\.whatsapp\.com/\S+|[a-zA-Z0-9][-a-zA-Z0-9]*\.(com|net|org|br|io|gov|edu|me|xyz|ru|tk|ml|ga|cf|gq)\b\S*)"
+                links_encontrados = re.findall(padrao_link, texto_conteudo, re.IGNORECASE)
+                
+                if links_encontrados:
+                    link_proprio = False
+                    for l in links_encontrados:
+                        url_str = "".join(l) if isinstance(l, tuple) else l
+                        if (chat_username and chat_username.lower() in url_str.lower()) or (chat_invite_link and chat_invite_link.lower() in url_str.lower()):
+                            link_proprio = True
+                            break
+                    
+                    if not link_proprio:
+                        violacao_detectada = True
+                        motivo_violacao = "link proibido"
 
-        if not violacao_detectada and cfg["antifoto"] and message.photo:
+        # 3. Anti-Menção
+        if not violacao_detectada and cfg.get("antimencao", False):
+            eh_encaminhado_externo = False
+            if message.forward_origin:
+                origin = message.forward_origin
+                if hasattr(origin, "chat") and origin.chat and origin.chat.id != chat.id:
+                    eh_encaminhado_externo = True
+                elif not hasattr(origin, "chat"):
+                    eh_encaminhado_externo = True
+
+            padrao_mencao_externa = r"(@[A-Za-z0-9_]{5,}|t\.me/[A-Za-z0-9_]+)"
+            mencoes = re.findall(padrao_mencao_externa, texto_conteudo, re.IGNORECASE)
+            
+            mencao_invalida = False
+            if mencoes:
+                for m in mencoes:
+                    if chat_username and chat_username.lower() in m.lower():
+                        continue
+                    mencao_invalida = True
+                    break
+
+            if eh_encaminhado_externo or mencao_invalida:
+                violacao_detectada = True
+                motivo_violacao = "mensagem encaminhada ou menção externa"
+
+        # 4. Anti-Foto
+        if not violacao_detectada and cfg.get("antifoto", False) and message.photo:
             violacao_detectada = True
             motivo_violacao = "foto"
 
-        if not violacao_detectada and cfg["antifigu"] and message.sticker:
+        # 5. Anti-Figurinha
+        if not violacao_detectada and cfg.get("antifigu", False) and message.sticker:
             violacao_detectada = True
             motivo_violacao = "figurinha"
 
-        if not violacao_detectada and cfg["antitravas"] and len(texto_conteudo) > 600:
+        # 6. Anti-Travas
+        if not violacao_detectada and cfg.get("antitravas", False) and len(texto_conteudo) > 600:
             violacao_detectada = True
             motivo_violacao = "trava de caracteres / golpe em massa"
 
@@ -378,7 +426,6 @@ async def apagar_aviso_futuro(context):
         pass
 
 async def limpar_dados_grupo_removido(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Limpa os dados do MongoDB caso o bot seja removido ou expulso do grupo."""
     result = update.my_chat_member
     if not result:
         return
@@ -386,7 +433,6 @@ async def limpar_dados_grupo_removido(update: Update, context: ContextTypes.DEFA
     chat = update.effective_chat
     novo_status = result.new_chat_member.status
     
-    # Se o bot foi removido ou saiu do grupo (left, kicked)
     if novo_status in ["left", "kicked"]:
         try:
             db = get_db()
@@ -400,5 +446,4 @@ async def limpar_dados_grupo_removido(update: Update, context: ContextTypes.DEFA
 def registrar_protecoes(app):
     app.add_handler(CommandHandler("protecao", cmd_protecao))
     app.add_handler(MessageHandler(~filters.StatusUpdate.ALL, monitorar_seguranca), group=2)
-    # Monitora se o bot foi removido do grupo para limpar o Mongo
     app.add_handler(ChatMemberHandler(limpar_dados_grupo_removido, ChatMemberHandler.MY_CHAT_MEMBER))
