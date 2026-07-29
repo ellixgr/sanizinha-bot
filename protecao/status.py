@@ -100,7 +100,8 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: 
         pass
     return False
 
-async def obter_menção_admins(chat, context: ContextTypes.DEFAULT_TYPE) -> str:
+# Função corrigida/adicionada para atender o Anti-Flood sem erros de importação
+async def obter_mencao_admins_str(chat, context: ContextTypes.DEFAULT_TYPE) -> str:
     try:
         admins = await chat.get_administrators()
         mencoes = []
@@ -112,6 +113,9 @@ async def obter_menção_admins(chat, context: ContextTypes.DEFAULT_TYPE) -> str
     except Exception:
         pass
     return "@adm"
+
+async def obter_menção_admins(chat, context: ContextTypes.DEFAULT_TYPE) -> str:
+    return await obter_mencao_admins_str(chat, context)
 
 async def apagar_aviso_futuro(context, mensagem):
     await asyncio.sleep(8)
