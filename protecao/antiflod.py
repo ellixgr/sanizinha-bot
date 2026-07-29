@@ -13,22 +13,20 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
     if not chat or not user or chat.type == "private":
         return False
 
-    # IGNORA DONO E ADMINISTRADORES (como combinado)
+    # IGNORA DONO E ADMINISTRADORES
     if await is_admin(update, context):
         return False
 
     agora = time.time()
     chave = (chat.id, user.id)
 
-    # VERIFICA SE O USUÁRIO ESTÁ BLOQUEADO NO MOMENTO
+    # VERIFICA SE O USUÁRIO JÁ ESTÁ BLOQUEADO
     if chave in BLOQUEADOS:
         if agora < BLOQUEADOS[chave]:
-            # Apaga a mensagem do usuário e não deixa o comando rodar
             try: await message.delete()
             except: pass
             return True
         else:
-            # Libera o usuário depois do tempo
             del BLOQUEADOS[chave]
             if chave in REGISTRO_FLOOD:
                 del REGISTRO_FLOOD[chave]
@@ -39,22 +37,20 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
 
     # Limpa registros mais antigos que 2 segundos
     REGISTRO_FLOOD[chave] = [t for t in REGISTRO_FLOOD[chave] if agora - t < 2]
-    # Adiciona o horário atual
     REGISTRO_FLOOD[chave].append(agora)
 
     # SE TIVER 2 OU MAIS COMANDOS EM MENOS DE 2 SEGUNDOS → APLICA PUNIÇÃO
     if len(REGISTRO_FLOOD[chave]) >= 2:
-        # Apaga as mensagens rápidas
         try: await message.delete()
         except: pass
 
-        # Define o bloqueio por 1 minuto
-        BLOQUEIO_ATE = agora + 60
+        # Define bloqueio por 1 minuto
+        TEMPO_BLOQUEIO_MIN = 1
+        BLOQUEIO_ATE = agora + (TEMPO_BLOQUEIO_MIN * 60)
         BLOQUEADOS[chave] = BLOQUEIO_ATE
 
         try:
-            # Revoga todas as permissões de envio por 1 minuto
-            data_liberacao = datetime.now(timezone.utc) + timedelta(minutes=1)
+            data_liberacao = datetime.now(timezone.utc) + timedelta(minutes=TEMPO_BLOQUEIO_MIN)
             await context.bot.restrict_chat_member(
                 chat_id=chat.id,
                 user_id=user.id,
@@ -62,18 +58,18 @@ async def executar_antiflod(update, context, chat, user, message, get_db, is_adm
                 until_date=data_liberacao
             )
 
-            # Envia aviso
-            aviso = await message.reply_text(
-                f"⚠️ {user.mention_html()}, você está bloqueado de usar os comandos por 1 minuto por floodar o bot.",
+            # ✅ NOVO AVISO NO CHAT COMO VOCÊ PEDIU
+            aviso = await context.bot.send_message(
+                chat_id=chat.id,
+                text=f"⚠️ {user.mention_html()} estava flodando o chat e foi silenciado por {TEMPO_BLOQUEIO_MIN} minuto(s)!",
                 parse_mode="HTML"
             )
-            # Apaga o aviso depois de 30s
+            # Apaga o aviso depois de 30s para não sujar o chat
             asyncio.create_task(_apagar_aviso(context, aviso))
 
         except Exception as e:
-            print(f"[ERRO ANTIFLOD] Não foi possível silenciar: {e}")
+            print(f"[ERRO ANTIFLOD] Não foi possível aplicar punição: {e}")
 
-        # Limpa o registro e BLOQUEIA o processamento do comando
         REGISTRO_FLOOD[chave] = []
         return True
 
