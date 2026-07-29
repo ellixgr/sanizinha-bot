@@ -10,7 +10,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 from comandos.menus import menu_membros_handler, menu_adm_handler
 
-# Importações dos módulos de proteção
 from protecao.antiflod import executar_antiflod
 from protecao.status import obter_punicao, obter_mencao_admins_str
 
@@ -24,15 +23,11 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 MONGO_URI = os.environ.get("MONGO_URI")
 DONO_ID = os.environ.get("DONO_ID")
 
-# Fuso horário do Brasil (UTC-3)
 FUSO_BR = timezone(timedelta(hours=-3))
 
 app_web = Flask(__name__)
-
 @app_web.route('/')
-def home():
-    return "SanizinhaBot online e operacional!"
-
+def home(): return "SanizinhaBot online!"
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app_web.run(host="0.0.0.0", port=port)
@@ -41,150 +36,123 @@ _mongo_client = None
 def get_db():
     global _mongo_client
     if _mongo_client is None:
-        _mongo_client = MongoClient(
-            MONGO_URI, 
-            serverSelectionTimeoutMS=1000, 
-            connectTimeoutMS=1000,
-            maxPoolSize=50,
-            tlsAllowInvalidCertificates=True
-        )
+        _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1000, connectTimeoutMS=1000, maxPoolSize=50, tlsAllowInvalidCertificates=True)
     return _mongo_client["sanizinhabot_db"]
 
-# ==============================================
-# ✅ VERIFICA ASSINATURA
-# ==============================================
 async def eh_cliente_pago(user_id: int) -> bool:
     if DONO_ID and str(user_id) == str(DONO_ID):
         return True
     try:
         db = get_db()
         agora = time.time()
-        cliente = db["clientes_pagos"].find_one(
-            {"user_id": user_id, "ativo": True, "expira_em": {"$gt": agora}}
-        )
+        cliente = db["clientes_pagos"].find_one({"user_id": user_id, "ativo": True, "expira_em": {"$gt": agora}})
         return bool(cliente)
     except Exception as e:
-        logger.error(f"Erro ao verificar assinatura: {e}")
+        logger.error(f"Erro verifica assinatura: {e}")
         return False
 
 async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     if not chat or chat.type == "private":
-        await update.message.reply_text("⚠️ Este comando só pode ser usado dentro de grupos ou canais!")
+        await update.message.reply_text("⚠️ Só funciona em grupos!")
         return
     if not DONO_ID or str(user.id) != str(DONO_ID):
-        await update.message.reply_text("❌ Apenas o dono do bot pode utilizar este comando.")
+        await update.message.reply_text("❌ Apenas o dono!")
         return
     db = get_db()
     agora = time.time()
     expira_em = agora + (10 * 365 * 24 * 60 * 60)
-    db["grupos_autorizados"].update_one(
-        {"chat_id": chat.id},
-        {"$set": {"chat_id": chat.id, "chat_title": chat.title, "registrado_por": user.id, "expira_em": expira_em, "ativo": True}},
-        upsert=True
-    )
+    db["grupos_autorizados"].update_one({"chat_id": chat.id}, {"$set":{"chat_id":chat.id,"chat_title":chat.title,"registrado_por":user.id,"expira_em":expira_em,"ativo":True}}, upsert=True)
     db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
-    await update.message.reply_text(
-        f"✅ **Grupo Registrado com Sucesso!**\n\nEste chat (`{chat.id}`) foi definido como alugado pelo Dono.",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(f"✅ Grupo registrado com sucesso!", parse_mode="Markdown")
 
 async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    user_id = update.effective_user.id
+    uid = update.effective_user.id
     chat = update.effective_chat
-    if DONO_ID and str(user_id) == str(DONO_ID):
-        return True
-    if chat.type in ["group", "supergroup"]:
-        try:
-            membro = await chat.get_member(user_id)
-            return membro.status in ["administrator", "creator"]
-        except Exception:
-            pass
+    if DONO_ID and str(uid) == str(DONO_ID): return True
+    if chat.type in ["group","supergroup"]:
+        try: return (await chat.get_member(uid)).status in ["administrator","creator"]
+        except: pass
     return False
 
 # ==============================================
-# ✅ INTERCEPTADOR AJUSTADO: LIBERA MENUS, BLOQUEIA AÇÕES NO PRIVADO
+# ✅ INTERCEPTADOR 100% AJUSTADO: NÃO BLOQUEIA MENUS NEM ALUGUEL
 # ==============================================
 async def interceptador_privado_assinatura(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    message = update.message or update.effective_message
+    msg = update.message or update.effective_message
     query = update.callback_query
 
     if not chat or chat.type != "private":
         return
 
-    user_id = user.id
-    if await eh_cliente_pago(user_id):
+    uid = user.id
+    if await eh_cliente_pago(uid):
         return
 
-    # BLOQUEIA COMANDOS/MENSAGENS DIRETAS NO PRIVADO
-    if message:
-        if message.text and message.text.strip() == "/start":
+    # BLOQUEIA APENAS COMANDOS DIRETOS NO PRIVADO
+    if msg:
+        if msg.text and msg.text.strip() == "/start":
             return
-        try: await message.delete()
+        try: await msg.delete()
         except: pass
         await chat.send_message(
-            "⚠️ **Acesso Restrito!**\n\nComandos como /ping, /perfil, /play e outros só funcionam no privado para assinantes.\n\nClique em **🤖 Alugar Bot** para liberar tudo!",
+            "⚠️ **Acesso Restrito!**\n\nComandos como /ping, /perfil, /play só funcionam no privado para assinantes.\n\nClique em **🤖 Alugar Bot** para contratar!",
             parse_mode="Markdown"
         )
         raise ApplicationHandlerStop
 
-    # CONTROLE DOS BOTÕES
+    # LIBERA TODA NAVEGAÇÃO — NENHUM MENU É BLOQUEADO
     if query:
         dados = query.data
 
-        # ✅ LIBERA TUDO DE NAVEGAÇÃO E VISUALIZAÇÃO
+        # ✅ TODOS OS MENUS E NAVEGAÇÃO LIBERADOS PARA QUALQUER UM
         liberados = [
-            "menu_membros", "menu_adm", "menu_aluguel", "voltar_menu", 
+            "menu_membros", "menu_adm", "menu_aluguel", "voltar_menu",
             "ver_comandos", "voltar_principal_grupo", "menu_jogos_atalho"
         ]
         if dados in liberados:
             return
 
-        # ✅ SE FOR BOTÃO DE JOGO NO PRIVADO: MOSTRA AVISO QUE SÓ FUNCIONA EM GRUPO
-        if dados in ["jogo_velha", "jogo_memoria", "jogo_xadrez", "jogo_dama"]:
-            await query.answer("🎮 Jogos só funcionam dentro de grupos!", show_alert=True)
-            await query.message.reply_text(
-                "🎮 **Jogos em Grupo**\n\nEstes jogos só podem ser iniciados dentro de grupos com outros usuários!",
-                parse_mode="Markdown"
-            )
+        # SE FOR BOTÃO DE JOGO NO PRIVADO: AVISA QUE SÓ FUNCIONA EM GRUPO
+        if dados in ["jogo_velha","jogo_memoria","jogo_xadrez","jogo_dama"]:
+            await query.answer("🎮 Jogos só funcionam em grupos!", show_alert=True)
+            await query.message.reply_text("🎮 Inicie jogos apenas dentro de grupos!", parse_mode="Markdown")
             raise ApplicationHandlerStop
 
-        # ❌ TUDO O RESTO (PING, PERFIL, PLAY, ETC) BLOQUEADO
+        # TUDO O RESTO (EXECUÇÃO DE FUNÇÕES) BLOQUEADO
         await query.answer("🔒 Função exclusiva para assinantes!", show_alert=True)
         await query.message.reply_text(
-            "🔒 **Função Bloqueada**\n\nEste recurso só está disponível para quem contratar o plano mensal do bot.\n\nAcesse **🤖 Alugar Bot** no menu!",
+            "🔒 Contrate o plano mensal para usar este recurso no privado.",
             parse_mode="Markdown"
         )
         raise ApplicationHandlerStop
 
-# INTERCEPTADOR DE FLOOD (SÓ GRUPOS)
 async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    message = update.message or update.effective_message
-    if not chat or not user or chat.type == "private" or not message:
+    msg = update.message or update.effective_message
+    if not chat or not user or chat.type == "private" or not msg:
         return
-    if await executar_antiflod(update, context, chat, user, message, get_db, verificar_se_e_adm, obter_punicao, obter_mencao_admins_str):
+    if await executar_antiflod(update,context,chat,user,msg,get_db,verificar_se_e_adm,obter_punicao,obter_mencao_admins_str):
         raise ApplicationHandlerStop
 
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    if not chat or not user or chat.type == "private":
-        return
-    message = update.message
-    if not message: return
-    tipo = {"total_mensagens":1, "fotos":int(bool(message.photo)), "videos":int(bool(message.video)), "audios":int(bool(message.voice or message.audio)), "stickers":int(bool(message.sticker))}
+    if not chat or not user or chat.type == "private": return
+    msg = update.message
+    if not msg: return
+    tipo = {"total_mensagens":1, "fotos":int(bool(msg.photo)), "videos":int(bool(msg.video)), "audios":int(bool(msg.voice or msg.audio)), "stickers":int(bool(msg.sticker))}
     try:
         db = get_db()
         db["mensagens_usuarios"].update_one({"chat_id":chat.id,"user_id":user.id}, {"$inc":tipo}, upsert=True)
     except: pass
 
 # ==============================================
-# ✅ MENU INICIAL: BOTÃO DE ADICIONAR SÓ APARECE PARA PAGANTES
+# ✅ MENU INICIAL: ALUGUEL APARECE PARA TODOS; ADICIONAR GRUPO SÓ PRA PAGANTES
 # ==============================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -202,14 +170,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
     )
 
-    # BOTÕES PADRÃO PARA TODOS
+    # BOTÕES PADRÃO PARA TODOS — INCLUINDO ALUGUEL
     botoes = [
         [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
         [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")]
     ]
 
-    # SE FOR DONO OU PAGANTE → ADICIONA BOTÃO DE ADICIONAR GRUPO
+    # ADICIONA BOTÃO DE GRUPO SÓ SE FOR PAGO OU DONO
     if await eh_cliente_pago(user.id):
         botoes.append([InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")])
 
@@ -229,17 +197,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "menu_adm":
         await menu_adm_handler(update, context)
     elif query.data == "menu_dono":
-        if str(uid)!=str(DONO_ID):
-            await query.answer("Acesso negado!", show_alert=True)
+        if str(uid) != str(DONO_ID):
+            await query.answer("Negado!", show_alert=True)
             return
         await query.answer()
         await query.message.edit_text(
-            "🛠️ **Painel Exclusivo do Dono**",
+            "🛠️ **Painel do Dono**",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Executar Deploy", callback_data="executar_deploy")],[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu")]]),
             parse_mode="Markdown"
         )
     elif query.data == "executar_deploy":
-        if str(uid)!=str(DONO_ID):
+        if str(uid) != str(DONO_ID):
             await query.answer("Negado!", show_alert=True)
             return
         from comandos.deploy import executar_clear_deploy
@@ -273,20 +241,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await ping_cmd(update, context)
     elif query.data == "menu_perfil_atalho":
         await query.answer()
-        if chat.type=="private":
-            await query.message.reply_text("⚠️ Use em grupos!", parse_mode="Markdown")
+        if chat.type == "private":
+            await query.message.reply_text("⚠️ Use este comando dentro de um grupo!", parse_mode="Markdown")
             return
         try:
-            db=get_db()
-            doc=db["mensagens_usuarios"].find_one({"chat_id":chat.id,"user_id":uid}) or {}
-            total=doc.get("total_mensagens",1)
-            fotos=doc.get("fotos",0)
-            videos=doc.get("videos",0)
-            audios=doc.get("audios",0)
-            sticks=doc.get("stickers",0)
-            soma=list(db["mensagens_usuarios"].aggregate([{"$match":{"chat_id":chat.id}},{"$group":{"_id":None,"s":{"$sum":"$total_mensagens"}}}]))
-            total_geral=soma[0]["s"] if soma else 1
-            pct=min((total/total_geral)*100,100)
+            db = get_db()
+            doc = db["mensagens_usuarios"].find_one({"chat_id":chat.id,"user_id":uid}) or {}
+            total = doc.get("total_mensagens",1)
+            fotos = doc.get("fotos",0)
+            videos = doc.get("videos",0)
+            audios = doc.get("audios",0)
+            sticks = doc.get("stickers",0)
+            soma = list(db["mensagens_usuarios"].aggregate([{"$match":{"chat_id":chat.id}},{"$group":{"_id":None,"s":{"$sum":"$total_mensagens"}}}]))
+            total_geral = soma[0]["s"] if soma else 1
+            pct = min((total/total_geral)*100,100)
         except: pct=0
         bio="Não configurada."
         try: bio=(await context.bot.get_chat(uid)).bio or bio
@@ -311,12 +279,10 @@ def main():
     threading.Thread(target=run_web, daemon=True).start()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
-    # ORDEM DE PRIORIDADE
     app.add_handler(TypeHandler(Update, interceptador_privado_assinatura), group=-2)
     app.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
-    # REGISTRO DOS MÓDULOS
     from comandos.ping import registrar_ping
     from comandos.id import registrar_id
     from comandos.perfil import registrar_perfil
@@ -351,7 +317,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Sistema de assinatura e menus ajustado com sucesso!")
+    logger.info("🤖 Sistema corrigido: menus livres, só funções bloqueadas!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
