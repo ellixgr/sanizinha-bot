@@ -13,7 +13,6 @@ from comandos.menus import menu_membros_handler, menu_adm_handler
 from protecao.antiflod import executar_antiflod
 from protecao.status import obter_punicao, obter_mencao_admins_str
 
-# ✅ IMPORTA O NOVO COMANDO DO DONO
 from dono.addgrupo import cmd_addgrupo, processar_callback_addgrupo
 
 logging.basicConfig(
@@ -154,9 +153,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     chat = query.message.chat
 
-    # ✅ TRATA OS BOTÕES DO /addgrupo ANTES DE TUDO
     if query.data.startswith("addgrupo_"):
-        await processar_callback_addgrupo(update, context)
+        await processar_callback_addgrupo(update, context, get_db, FUSO_BR)
         return
 
     if chat.type != "private" and not await grupo_autorizado(chat.id):
@@ -282,8 +280,10 @@ def main():
     setup_play(app); registrar_mutar(app); registrar_deploy(app); registrar_aluguel(app)
 
     app.add_handler(CommandHandler("lw", cmd_registrar_aluguel_dono))
-    # ✅ REGISTRA O NOVO COMANDO /addgrupo
-    app.add_handler(CommandHandler("addgrupo", cmd_addgrupo))
+
+    async def wrapper_addgrupo(update, context):
+        await cmd_addgrupo(update, context, get_db, DONO_ID, FUSO_BR)
+    app.add_handler(CommandHandler("addgrupo", wrapper_addgrupo))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
@@ -291,7 +291,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Comando /addgrupo adicionado com sucesso!")
+    logger.info("🤖 Sistema corrigido e funcionando!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
