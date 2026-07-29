@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from flask import Flask
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler, ApplicationHandlerStop
 
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 from comandos.menus import menu_membros_handler, menu_adm_handler
@@ -39,6 +39,19 @@ def get_db():
         _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1000, connectTimeoutMS=1000, maxPoolSize=50, tlsAllowInvalidCertificates=True)
     return _mongo_client["sanizinhabot_db"]
 
+# ==============================================
+# ✅ VERIFICA SE O GRUPO TEM ALUGUEL ATIVO
+# ==============================================
+async def grupo_autorizado(chat_id: int) -> bool:
+    try:
+        db = get_db()
+        agora = time.time()
+        grupo = db["grupos_autorizados"].find_one({"chat_id": chat_id, "ativo": True, "expira_em": {"$gt": agora}})
+        return bool(grupo)
+    except Exception as e:
+        logger.error(f"Erro verifica grupo: {e}")
+        return False
+
 async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -64,21 +77,59 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except: pass
     return False
 
-# INTERCEPTADOR DE FLOOD — SÓ NOS GRUPOS
+# ==============================================
+# ✅ QUANDO O BOT É ADICIONADO EM UM GRUPO
+# ==============================================
+async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    if not chat or chat.type not in ["group","supergroup"]:
+        return
+
+    # SE O GRUPO JÁ ESTÁ AUTORIZADO → NÃO FAZ NADA
+    if await grupo_autorizado(chat.id):
+        return
+
+    # SE NÃO ESTÁ AUTORIZADO → AVISA E SAI
+    aviso = (
+        "⚠️ **USO NÃO AUTORIZADO**\n\n"
+        "Para usar este bot em seu grupo, é necessário contratar o plano de aluguel mensal.\n\n"
+        "Clique no botão abaixo para contratar:"
+    )
+    botoes = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🤖 Contratar Plano", url=f"https://t.me/{context.bot.username}?start=aluguel")]
+    ])
+
+    await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
+    await context.bot.leave_chat(chat.id)
+
+# ==============================================
+# ✅ INTERCEPTADOR: IGNORA TODOS OS COMANDOS EM GRUPOS NÃO AUTORIZADOS
+# ==============================================
+async def interceptador_grupos_nao_autorizados(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    if not chat or chat.type == "private":
+        return
+
+    if not await grupo_autorizado(chat.id):
+        raise ApplicationHandlerStop
+
+# INTERCEPTADOR DE FLOOD — SÓ FUNCIONA EM GRUPOS AUTORIZADOS
 async def interceptador_geral_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     msg = update.message or update.effective_message
     if not chat or not user or chat.type == "private" or not msg:
         return
+    if not await grupo_autorizado(chat.id):
+        return
     if await executar_antiflod(update,context,chat,user,msg,get_db,verificar_se_e_adm,obter_punicao,obter_mencao_admins_str):
-        from telegram.ext import ApplicationHandlerStop
         raise ApplicationHandlerStop
 
 async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     if not chat or not user or chat.type == "private": return
+    if not await grupo_autorizado(chat.id): return
     msg = update.message
     if not msg: return
     tipo = {"total_mensagens":1, "fotos":int(bool(msg.photo)), "videos":int(bool(msg.video)), "audios":int(bool(msg.voice or msg.audio)), "stickers":int(bool(msg.sticker))}
@@ -87,7 +138,7 @@ async def interceptador_estatisticas(update: Update, context: ContextTypes.DEFAU
         db["mensagens_usuarios"].update_one({"chat_id":chat.id,"user_id":user.id}, {"$inc":tipo}, upsert=True)
     except: pass
 
-# MENU INICIAL LIVRE PARA TODOS
+# MENU INICIAL LIVRE PARA TODOS NO PRIVADO
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -120,6 +171,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     uid = update.effective_user.id
     chat = query.message.chat
+
+    # EM GRUPOS SÓ PROSSEGUE SE FOR AUTORIZADO
+    if chat.type != "private" and not await grupo_autorizado(chat.id):
+        await query.answer("❌ Grupo não autorizado!", show_alert=True)
+        return
 
     if query.data == "menu_membros":
         await menu_membros_handler(update, context)
@@ -208,6 +264,10 @@ def main():
     threading.Thread(target=run_web, daemon=True).start()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
+    # ✅ ORDEM DE PRIORIDADE: VERIFICA GRUPO ANTES DE TUDO
+    app.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
+    # ✅ DETECTA QUANDO O BOT É ADICIONADO
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
     app.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
@@ -239,13 +299,12 @@ def main():
 
     app.add_handler(CommandHandler("lw", cmd_registrar_aluguel_dono))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Sem bloqueios — tudo liberado!")
+    logger.info("🤖 Sistema de aluguel de grupos restaurado!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
