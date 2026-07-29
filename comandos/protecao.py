@@ -26,7 +26,7 @@ def obter_punicao(chat_id: int):
         CONFIGS_PUNICAO[chat_id] = {
             "acao": "aviso_ban",  # Opções: "aviso_ban", "remover", "silenciar"
             "apagar_msg": True,   # Apagar a mensagem infratora
-            "tempo_mute": 1       # Corrigido: chave com aspas corretas
+            "tempo_mute": 1       # Tempo padrão de silenciamento em minutos
         }
     return CONFIGS_PUNICAO[chat_id]
 
@@ -41,18 +41,7 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: 
         pass
     return False
 
-async def enviar_painel_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-
-    if not await is_admin(update, context, user_id, chat_id):
-        if query:
-            await query.answer("⚠️ Apenas administradores podem mexer nas proteções!", show_alert=True)
-        return
-
-    cfg = obter_configs(chat_id)
-
+def gerar_teclado_protecoes(cfg):
     s_link = "🟢 Ligado" if cfg["antilink"] else "🔴 Desligado"
     s_foto = "🟢 Ligado" if cfg["antifoto"] else "🔴 Desligado"
     s_figu = "🟢 Ligado" if cfg["antifigu"] else "🔴 Desligado"
@@ -78,12 +67,27 @@ async def enviar_painel_protecoes(update: Update, context: ContextTypes.DEFAULT_
         [InlineKeyboardButton("⚙️ Configurar Punição", callback_data="menu_config_punicao")],
         [InlineKeyboardButton("🔙 Voltar ao Menu ADM", callback_data="menu_adm")]
     ])
+    return texto, teclado
+
+async def enviar_painel_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    query = update.callback_query
+
+    if not await is_admin(update, context, user_id, chat_id):
+        if query:
+            await query.answer("⚠️ Apenas administradores podem mexer nas proteções!", show_alert=True)
+        return
+
+    cfg = obter_configs(chat_id)
+    texto, teclado = gerar_teclado_protecoes(cfg)
 
     if query:
         await query.answer()
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
     else:
-        await update.message.reply_text(texto, reply_markup=teclado, parse_mode="Markdown")
+        if update.message:
+            await update.message.reply_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 async def enviar_painel_punicao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -91,7 +95,8 @@ async def enviar_painel_punicao(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
 
     if not await is_admin(update, context, user_id, chat_id):
-        await query.answer("⚠️ Apenas administradores podem configurar punições!", show_alert=True)
+        if query:
+            await query.answer("⚠️ Apenas administradores podem configurar punições!", show_alert=True)
         return
 
     punicao = obter_punicao(chat_id)
@@ -124,11 +129,15 @@ async def enviar_painel_punicao(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton("🔙 Voltar às Proteções", callback_data="menu_protecoes")]
     ])
 
-    await query.answer()
-    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+    if query:
+        await query.answer()
+        await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 async def processar_callback_protecao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if not query:
+        return
+
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
 
@@ -144,7 +153,9 @@ async def processar_callback_protecao(update: Update, context: ContextTypes.DEFA
         if acao in cfg:
             cfg[acao] = not cfg[acao]
             await query.answer("Status alterado com sucesso!")
-            await enviar_painel_protecoes(update, context)
+            # Atualiza diretamente a mensagem do painel usando os dados novos para evitar conflitos no objeto Update
+            texto, teclado = gerar_teclado_protecoes(cfg)
+            await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
     elif data == "menu_config_punicao":
         await enviar_painel_punicao(update, context)
@@ -202,7 +213,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = update.effective_user
     message = update.message
 
-    if not chat or not user or chat.type == "private":
+    if not chat or not user or chat.type == "private" or not message:
         return
 
     # Administradores são imunes
@@ -216,7 +227,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     motivo_violacao = ""
     eh_flood = False
 
-    # 1. Verificação de Anti-Flood (Mensagens e comandos em massa rápidos)
+    # 1. Verificação de Anti-Flood
     if cfg["antiflood"]:
         agora = time.time()
         chave = (chat.id, user.id)
@@ -226,16 +237,14 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
         REGISTRO_FLOOD[chave] = [t for t in REGISTRO_FLOOD[chave] if agora - t < 5]
         REGISTRO_FLOOD[chave].append(agora)
 
-        if len(REGISTRO_FLOOD[chave]) > 3:  # Mais de 3 msgs em 5 segundos = Flood
+        if len(REGISTRO_FLOOD[chave]) > 3:
             eh_flood = True
             violacao_detectada = True
             motivo_violacao = "flood de mensagens/comandos"
 
     # 2. Demais proteções se não for flood
     if not eh_flood:
-        # Anti-Link corrigido para pegar links normais, t.me, @canais e domínios com segurança
         if cfg["antilink"]:
-            # Ignora comando /start direcionado ao próprio bot
             ignorar_chatbot = f"@{context.bot.username}" in texto_conteudo and message.text and message.text.startswith("/start")
             if not ignorar_chatbot:
                 padrao_link = r"(https?://\S+|t\.me/\S+|www\.\S+|@[A-Za-z0-9_]{5,}|tg://\S+)"
@@ -256,7 +265,6 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             motivo_violacao = "trava de caracteres / golpe em massa"
 
     if violacao_detectada:
-        # Apaga a mensagem se configurado
         if punicao["apagar_msg"]:
             try:
                 await message.delete()
@@ -265,7 +273,6 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         chave_aviso = (chat.id, user.id)
 
-        # Se for Flood, aplica o tempo configurado no painel de punição
         if eh_flood:
             try:
                 liberar_ate = timedelta(minutes=punicao["tempo_mute"])
@@ -280,7 +287,6 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.job_queue.run_once(apagar_aviso_futuro, 8, data=aviso)
             return
 
-        # Aplica a punição escolhida pelo ADM no painel geral
         tipo_acao = punicao["acao"]
 
         if tipo_acao == "remover":
@@ -306,7 +312,7 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception:
                 pass
 
-        else:  # Modo padrão: "aviso_ban" (1º aviso, reincidente bane)
+        else:
             if chave_aviso not in REGISTRO_AVISADOS:
                 REGISTRO_AVISADOS[chave_aviso] = True
                 aviso = await chat.send_message(
@@ -334,6 +340,8 @@ async def apagar_aviso_futuro(context):
 
 def registrar_protecoes(app):
     app.add_handler(CommandHandler("protecao", cmd_protecao))
+    # Certifique-se de registrar o CallbackQueryHandler para o painel se já não o fez no main:
+    # app.add_handler(CallbackQueryHandler(processar_callback_protecao, pattern="^(prot_|pun_|menu_config_punicao|menu_protecoes)"))
     app.add_handler(MessageHandler(
         ~filters.StatusUpdate.ALL, 
         monitorar_seguranca
