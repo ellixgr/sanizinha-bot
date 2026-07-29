@@ -482,6 +482,18 @@ def main():
     from comandos.figurinha import registrar_figurinha
     from comandos.aluguel import registrar_aluguel
 
+
+    from comandos.jogos.velha import setup_velha
+    from comandos.jogos.memoria import setup_memoria
+    from comandos.jogos.dama import setup_dama
+    from comandos.jogos.xadrez import setup_xadrez
+
+  # Dentro do def main():
+    setup_velha(app)
+    setup_memoria(app)
+    setup_dama(app)
+    setup_xadrez(app)
+    
     registrar_figurinha(app)
     registrar_promover(app)
     registrar_rank(app)
