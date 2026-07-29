@@ -26,20 +26,9 @@ async def processar_callback_jogos(update: Update, context: ContextTypes.DEFAULT
         await menu_jogos_handler(update, context)
         return
 
-    # ✅ ISSO AQUI QUE FAZ FUNCIONAR, CAMINHO EXATO IGUAL AO SEU PROJETO
-    if data == "jogo_xadrez":
-        await query.answer("Abrindo Xadrez...")
-        from comandos.jogos.xadrez import menu_xadrez_handler
-        await menu_xadrez_handler(update, context)
-        return
-
-    # AQUI DEPOIS VOCÊ ADICIONA OS OUTROS JOGOS
     if data == "jogo_velha":
         await query.answer("Jogo da Velha em breve!")
-        return
-    if data == "jogo_memoria":
+    elif data == "jogo_memoria":
         await query.answer("Jogo da Memória em breve!")
-        return
-    if data == "jogo_dama":
+    elif data == "jogo_dama":
         await query.answer("Jogo de Damas em breve!")
-        return
