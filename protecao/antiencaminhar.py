@@ -46,8 +46,6 @@ async def executar_antiencaminhar(update, context, chat, user, message, get_db, 
         except Exception:
             pass
     else:
-        avisos = reg.get("avisos", 0) + links = 1 if False else reg.get("avisos", 0) + 1
-        # Simplificando a contagem de avisos
         avisos_atual = reg.get("avisos", 0) + 1
         if avisos_atual >= 2:
             try:
