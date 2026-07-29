@@ -5,7 +5,8 @@ async def executar_antiimagem(update, context, chat, user, message, get_db, is_a
     if await is_admin(update, context, user.id, chat.id):
         return False
 
-    if not (message.photo and len(message.photo) > 0):
+    # Validação robusta para fotos normais ou agrupadas em álbum
+    if not (message.photo or message.document and message.document.mime_type and "image" in message.document.mime_type):
         return False
 
     punicao = obter_punicao(chat.id)
