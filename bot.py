@@ -343,9 +343,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await enviar_painel_protecoes(update, context)
         except Exception as e:
             await query.message.reply_text(f"⚠️ Erro ao abrir o painel de proteções: {e}")
-    elif query.data.startswith("prot_"):
+
+    elif query.data == "menu_config_punicao":
         if not await verificar_se_e_adm(update, context):
-            await query.answer("⚠️ Apenas administradores podem alterar as proteções!", show_alert=True)
+            await query.answer("⚠️ Apenas administradores do grupo podem configurar as punições!", show_alert=True)
+            return
+        try:
+            from comandos.protecao import enviar_painel_punicao
+            await enviar_painel_punicao(update, context)
+        except Exception as e:
+            await query.message.reply_text(f"⚠️ Erro ao abrir o painel de punições: {e}")
+
+    elif query.data.startswith(("prot_", "pun_")):
+        if not await verificar_se_e_adm(update, context):
+            await query.answer("⚠️ Apenas administradores podem alterar estas opções!", show_alert=True)
             return
         try:
             from comandos.protecao import processar_callback_protecao
@@ -479,13 +490,11 @@ def main():
     from comandos.figurinha import registrar_figurinha
     from comandos.aluguel import registrar_aluguel
 
-
     from comandos.jogos.velha import setup_velha
     from comandos.jogos.memoria import setup_memoria
     from comandos.jogos.dama import setup_dama
     from comandos.jogos.xadrez import setup_xadrez
 
-  # Dentro do def main():
     setup_velha(app)
     setup_memoria(app)
     setup_dama(app)
