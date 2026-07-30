@@ -424,7 +424,7 @@ def main():
     threading.Thread(target=run_web, daemon=True).start()
     
     # ✅ LINHA CORRIGIDA — SEM NENHUM PARÂMETRO PROBLEMÁTICO
-    application = ApplicationBuilder().token(TELEGRAM_TOKEN).get_updates_read_timeout(15).build()
+    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     # 🔷 INTERCEPTADORES
     application.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
