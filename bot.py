@@ -130,22 +130,16 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-# ✅ ✅ ✅ INTERCEPTADOR CORRIGIDO — DEIXA O VOLTAR PASSAR! ✅ ✅ ✅
+# ✅ ✅ ✅ INTERCEPTADOR CORRIGIDO — NÃO BLOQUEIA NENHUM BOTÃO! ✅ ✅ ✅
 async def interceptador_grupos_nao_autorizados(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
 
-    # ✅ DEIXA O BOTÃO VOLTAR PASSAR ANTES DE TUDO!
+    # ✅ SE FOR CLIQUE DE BOTÃO → DEIXA PASSAR SEMPRE! NÃO BLOQUEIA NENHUM BOTÃO!
     if update.callback_query:
-        dados = update.callback_query.data
-        botoes_voltar = [
-            "voltar_menu_principal", "voltar_menu", "ver_comandos",
-            "voltar_principal_grupo", "menu_voltar_inicio"
-        ]
-        if dados in botoes_voltar:
-            return  # ✅ NÃO BLOQUEIA! DEIXA PASSAR!
+        return  # ✅ TODOS OS BOTÕES FUNCIONAM! VOLTAR, MENU, TUDO!
 
-    # ✅ RESTO DO BLOQUEIO NORMAL
+    # ✅ AQUI SÓ BLOQUEIA COMANDOS DIGITADOS NO CHAT (ex: /ping, /play)
     if not chat or chat.type == "private":
         return
     if DONO_ID and str(user.id) == str(DONO_ID):
