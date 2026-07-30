@@ -123,45 +123,25 @@ def ler_comandos():
     except:
         return "📜 Arquivo de comandos não encontrado."
 
-# ✅ ✅ ✅ COMANDO START — BLOQUEADO EM GRUPOS NÃO CADASTRADOS ✅ ✅ ✅
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
+# ✅ FUNÇÃO GERAR MENU — USADA POR /start E POR BOTÃO VOLTAR
+def gerar_menu_texto_e_botoes(user, chat):
+    agora = datetime.now(FUSO_BR)
+    hora = agora.strftime("%H:%M:%S")
+    data = agora.strftime("%d/%m/%Y")
 
-    # ✅ SE FOR GRUPO → BLOQUEIA SE NÃO ESTIVER CADASTRADO
-    if chat.type in ["group", "supergroup"]:
-        if DONO_ID and str(user.id) == str(DONO_ID):
-            pass  # DONO SEMPRE PODE
-        elif not await grupo_autorizado(chat.id):
-            aviso = (
-                "⚠️ **USO NÃO AUTORIZADO**\n\n"
-                "Este grupo não está cadastrado.\n"
-                "Contrate o bot para poder usá-lo."
-            )
-            botoes = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🤖 Alugar Bot", url=f"https://t.me/{context.bot.username}?start=aluguel")]
-            ])
-            await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
-            return
-
-    # ✅ SE FOR PRIVADO → MOSTRA SOMENTE ALUGAR E VER COMANDOS
+    # ✅ SE FOR PRIVADO → SÓ ALUGAR E VER COMANDOS
     if chat.type == "private":
         texto = (
             "👋 Olá! Bem-vindo ao Bot!\n\n"
             "Escolha uma opção abaixo:"
         )
-        botoes = InlineKeyboardMarkup([
+        botoes = [
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
             [InlineKeyboardButton("📜 Ver Comandos", callback_data="ver_comandos")]
-        ])
-        await update.message.reply_text(texto, reply_markup=botoes, parse_mode="Markdown")
-        return
+        ]
+        return texto, botoes
 
-    # ✅ SE FOR GRUPO AUTORIZADO OU DONO → MOSTRA MENU COMPLETO
-    agora = datetime.now(FUSO_BR)
-    hora = agora.strftime("%H:%M:%S")
-    data = agora.strftime("%d/%m/%Y")
-
+    # ✅ SE FOR GRUPO → MENU COMPLETO
     texto = (
         "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
         f"✰┃👤 : {user.first_name}\n"
@@ -184,7 +164,43 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if DONO_ID and str(user.id) == str(DONO_ID):
         botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono", callback_data="menu_dono")])
 
-    await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    return texto, botoes
+
+# ✅ ✅ ✅ COMANDO START CORRIGIDO — DETECTA CLIQUE DE BOTÃO ✅ ✅ ✅
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    user = update.effective_user
+    query = update.callback_query  # ← DETECTA SE VEIO DE CLIQUE DE BOTÃO
+
+    # ✅ SE FOR GRUPO → BLOQUEIA SE NÃO ESTIVER CADASTRADO
+    if chat.type in ["group", "supergroup"]:
+        if DONO_ID and str(user.id) == str(DONO_ID):
+            pass  # DONO SEMPRE PODE
+        elif not await grupo_autorizado(chat.id):
+            aviso = (
+                "⚠️ **USO NÃO AUTORIZADO**\n\n"
+                "Este grupo não está cadastrado.\n"
+                "Contrate o bot para poder usá-lo."
+            )
+            botoes = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🤖 Alugar Bot", url=f"https://t.me/{context.bot.username}?start=aluguel")]
+            ])
+            if query:
+                await query.message.edit_text(aviso, reply_markup=botoes, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
+            return
+
+    # ✅ GERA O MENU
+    texto, botoes = gerar_menu_texto_e_botoes(user, chat)
+
+    # ✅ SE VEIO DE CLIQUE DE BOTÃO → EDITA A MENSAGEM (ISSO FAZ O VOLTAR FUNCIONAR!)
+    if query:
+        await query.message.edit_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    # ✅ SE VEIO DE /start DIGITADO → CRIA NOVA MENSAGEM
+    else:
+        await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+
 
 # ✅ MENUS
 async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -210,10 +226,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = query.data
     logger.info(f"📥 CLIQUE: {dados} | Usuário: {uid}")
 
-    # ✅ VOLTAR AO MENU PRINCIPAL
+    # ✅ ✅ ✅ BOTÃO VOLTAR — AGORA CHAMA START CORRETAMENTE ✅ ✅ ✅
     if dados in ["voltar_menu_principal", "voltar_menu"]:
         await query.answer()
-        await start(update, context)
+        await start(update, context)  # ← start() agora EDITA a mensagem!
         return
 
     # ✅ BOTÃO VER COMANDOS → LER DO cmd.txt
@@ -308,7 +324,7 @@ def main():
 
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
 
-    logger.info("🤖 Bot iniciado!")
+    logger.info("🤖 Bot iniciado! Botão VOLTAR CORRIGIDO ✅")
 
     import sys
     try:
