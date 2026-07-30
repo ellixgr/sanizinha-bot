@@ -9,8 +9,11 @@ from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ContextTypes, filters  # ← ADICIONEI MessageHandler AQUI!
+    MessageHandler, ContextTypes, filters
 )
+
+# ✅ IMPORTA OS COMANDOS DO cmd.py
+from cmd import ler_comandos_membros, ler_comandos_adm
 
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 from protecao.antiflod import executar_antiflod
@@ -98,14 +101,23 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-def ler_comandos():
-    try:
-        with open("cmd.txt", "r", encoding="utf-8") as f:
-            return f.read()
-    except:
-        return "📜 Arquivo de comandos não encontrado."
+# ✅ MOSTRA COMANDOS DE MEMBROS
+async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    texto = ler_comandos_membros()
+    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
+    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ FUNÇÃO START — CORRIGIDA
+# ✅ MOSTRA COMANDOS DE ADMINISTRADORES
+async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    texto = ler_comandos_adm()
+    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
+    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+
+# ✅ FUNÇÃO START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -130,7 +142,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
             return
 
-    # ✅ SE FOR PRIVADO → SÓ ALUGAR E VER COMANDOS
+    # ✅ SE FOR PRIVADO
     if chat.type == "private":
         texto = (
             "👋 Olá! Bem-vindo ao Bot!\n\n"
@@ -157,8 +169,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
         )
         botoes = [
-            [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
-            [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
+            [InlineKeyboardButton("📜 Comandos Membro", callback_data="menu_membros")],
+            [InlineKeyboardButton("🛡️ Comandos ADM", callback_data="menu_adm")],
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
             [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
         ]
@@ -166,26 +178,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono", callback_data="menu_dono")])
         botoes = InlineKeyboardMarkup(botoes)
 
-    # ✅ EDITA mensagem se veio de botão
     if query:
         await query.message.edit_text(texto, reply_markup=botoes, parse_mode="Markdown")
     else:
         await update.message.reply_text(texto, reply_markup=botoes, parse_mode="Markdown")
 
-async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    texto = ler_comandos()
-    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
-    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
-
-async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    texto = ler_comandos()
-    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
-    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
-
+# ✅ GERENCIADOR DE BOTÕES
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
@@ -193,26 +191,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = query.data
     logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ BOTÃO VOLTAR — FUNCIONA!
+    # ✅ BOTÃO VOLTAR
     if dados in ["voltar_menu_principal", "voltar_menu"]:
         await query.answer()
         await start(update, context)
         return
 
-    if dados == "ver_comandos":
-        await query.answer()
-        texto = ler_comandos()
-        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
-        await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
-        return
-
+    # ✅ COMANDOS DE MEMBROS
     if dados == "menu_membros":
         await query.answer()
         await menu_membros_handler(update, context)
         return
+
+    # ✅ COMANDOS DE ADMINISTRADORES
     if dados == "menu_adm":
         await query.answer()
         await menu_adm_handler(update, context)
+        return
+
+    if dados == "ver_comandos":
+        await query.answer()
+        texto = ler_comandos_membros() + "\n" + ler_comandos_adm()
+        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
+        await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
     if dados == "menu_aluguel":
@@ -286,10 +287,9 @@ def main():
         await cmd_addgrupo(update, context, get_db, DONO_ID, FUSO_BR)
     application.add_handler(CommandHandler("addgrupo", wrapper_addgrupo))
 
-    # ✅ AGORA MessageHandler ESTÁ IMPORTADO! NÃO DÁ MAIS ERRO!
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
 
-    logger.info("🤖 Bot iniciado! MessageHandler corrigido ✅")
+    logger.info("🤖 Bot iniciado com sucesso! ✅")
 
     import sys
     try:
