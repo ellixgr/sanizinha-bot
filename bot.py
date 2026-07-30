@@ -2,7 +2,6 @@ import os
 import logging
 import threading
 import time
-import asyncio
 from datetime import datetime, timezone, timedelta
 from flask import Flask
 from pymongo import MongoClient
@@ -40,7 +39,6 @@ FUSO_BR = timezone(timedelta(hours=-3))
 app_web = Flask(__name__)
 @app_web.route('/')
 def home(): return "SanizinhaBot online!"
-
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app_web.run(host="0.0.0.0", port=port)
@@ -230,6 +228,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = query.data
     logger.info(f"📥 CLIQUE: {dados} | Usuário: {uid}")
 
+    # ✅ PRIMEIRO: VERIFICA VOLTAR — ANTES DE QUALQUER BLOQUEIO!
     if dados in ["voltar_menu_principal", "voltar_menu", "ver_comandos", "voltar_principal_grupo", "menu_voltar_inicio"]:
         await query.answer()
         await start(update, context)
@@ -260,6 +259,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processar_callback_addgrupo(update, context, get_db, FUSO_BR)
         return
 
+    # ⚠️ BLOQUEIO SÓ VEM DEPOIS DO VOLTAR!
     if not (DONO_ID and str(uid) == str(DONO_ID)):
         if chat.type != "private" and not await grupo_autorizado(chat.id):
             await query.answer("❌ Grupo não autorizado!", show_alert=True)
@@ -413,19 +413,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    # ✅ INICIA O LOOP DE EVENTOS ANTES DE TUDO
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    # ✅ INICIA SERVIDOR WEB EM THREAD SEPARADA
     threading.Thread(target=run_web, daemon=True).start()
 
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # ✅ PRIMEIRO: REGISTRA TODOS OS COMANDOS E BOTÕES
     application.add_handler(CallbackQueryHandler(button_handler))
 
     from comandos.ping import registrar_ping
@@ -465,7 +456,6 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
 
-    # ✅ DEPOIS DE TUDO: REGISTRA OS INTERCEPTADORES
     application.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
     application.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
@@ -473,16 +463,15 @@ def main():
 
     logger.info("🤖 Bot iniciado! Botões prontos.")
 
-    # ✅ INICIA O POLLING COM O LOOP CORRETO
+    import sys
     try:
-        loop.run_until_complete(application.run_polling(drop_pending_updates=True))
+        application.run_polling(drop_pending_updates=True)
     except Exception as e:
         logger.warning(f"⚠️ Com parâmetro falhou: {e}")
         try:
-            loop.run_until_complete(application.run_polling())
+            application.run_polling()
         except Exception as e2:
             logger.error(f"❌ Falha total: {e2}")
-            import sys
             sys.exit(1)
 
 if __name__ == "__main__":
