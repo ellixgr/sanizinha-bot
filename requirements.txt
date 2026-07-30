@@ -1,4 +1,5 @@
 python-telegram-bot
+python-chess>=1.999
 yt-dlp
 Flask
 pymongo
