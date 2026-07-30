@@ -9,7 +9,7 @@ from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    ContextTypes, filters
+    MessageHandler, ContextTypes, filters  # ← ADICIONEI MessageHandler AQUI!
 )
 
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
@@ -105,7 +105,7 @@ def ler_comandos():
     except:
         return "📜 Arquivo de comandos não encontrado."
 
-# ✅ ✅ FUNÇÃO START — CORRIGIDA SEM ERRO DE SINTAXE ✅ ✅
+# ✅ FUNÇÃO START — CORRIGIDA
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -140,7 +140,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
             [InlineKeyboardButton("📜 Ver Comandos", callback_data="ver_comandos")]
         ]
-        # ✅ Verifica se é assinante para mostrar botão extra
         if await verificar_assinante(user.id):
             botoes.insert(2, [InlineKeyboardButton("⚙️ Configurar Grupos", callback_data="menu_config_grupos")])
         botoes = InlineKeyboardMarkup(botoes)
@@ -167,7 +166,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono", callback_data="menu_dono")])
         botoes = InlineKeyboardMarkup(botoes)
 
-    # ✅ EDITA mensagem se veio de botão, cria nova se veio de /start
+    # ✅ EDITA mensagem se veio de botão
     if query:
         await query.message.edit_text(texto, reply_markup=botoes, parse_mode="Markdown")
     else:
@@ -194,7 +193,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = query.data
     logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ BOTÃO VOLTAR — AGORA FUNCIONA!
+    # ✅ BOTÃO VOLTAR — FUNCIONA!
     if dados in ["voltar_menu_principal", "voltar_menu"]:
         await query.answer()
         await start(update, context)
@@ -287,9 +286,10 @@ def main():
         await cmd_addgrupo(update, context, get_db, DONO_ID, FUSO_BR)
     application.add_handler(CommandHandler("addgrupo", wrapper_addgrupo))
 
+    # ✅ AGORA MessageHandler ESTÁ IMPORTADO! NÃO DÁ MAIS ERRO!
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
 
-    logger.info("🤖 Bot iniciado! SEM ERROS ✅")
+    logger.info("🤖 Bot iniciado! MessageHandler corrigido ✅")
 
     import sys
     try:
