@@ -423,8 +423,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     threading.Thread(target=run_web, daemon=True).start()
     # ✅ LINHA CORRIGIDA — TIMEOUT ADICIONADO
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).get_updates_read_timeout=15.build()
-
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).get_updates_read_timeout(15).build()
     # 🔷 INTERCEPTADORES (executam primeiro)
     app.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
