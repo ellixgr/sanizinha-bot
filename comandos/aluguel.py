@@ -128,6 +128,9 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pid = res.get("id")
             qr = res.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code", "")
             
+            # ✅ ESCAPA CARACTERES QUE QUEBRAM O MARKDOWN
+            qr_seguro = qr.replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace('`', '\\`')
+            
             db = get_db()
             db["alugueis_pendentes"].update_one({"payment_id": pid}, {
                 "$set": {"user_id": user_id, "meses": meses, "valor": valor, "status": "pendente", "qr_code": qr}
@@ -135,10 +138,9 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             msg_completa = (
                 f"⚡ **PIX GERADO!**\n💸 Valor: R$ {valor:.2f}\n\n"
-                f"📋 **Código Pix Copia e Cola:**\n`{qr}`"
+                f"📋 **Código Pix Copia e Cola:**\n`{qr_seguro}`"
             )
             
-            # ✅ IGUAL AO SEGUNDO BOT — usa copy_text nativo do Telegram!
             teclado_final = [
                 [InlineKeyboardButton("📋 Copiar Código Pix", copy_text=dict(text=qr))],
                 [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{pid}")],
