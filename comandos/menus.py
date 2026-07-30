@@ -1,6 +1,10 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from comandos.jogos.menujogos import menu_jogos_handler
 
+# ✅ Importe AQUI a função que mostra o MENU PRINCIPAL (ajuste o nome se for diferente)
+# Exemplo: from comandos.seu_arquivo import menu_principal_handler
+# Vou deixar comentado, você confere o nome correto no seu bot.py
+
 async def menu_membros_handler(update, context):
     query = update.callback_query
     await query.answer()
@@ -15,12 +19,15 @@ async def menu_membros_handler(update, context):
     )
     
     teclado_membros = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🏓 Ping", callback_data="botao_ping"), InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil_atalho")],
-        [InlineKeyboardButton("🆔 ID", callback_data="menu_id_atalho"), InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos_atalho")],
-        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+        [InlineKeyboardButton("🏓 Ping", callback_data="botao_ping"), 
+         InlineKeyboardButton("👤 Perfil", callback_data="menu_perfil_atalho")],
+        [InlineKeyboardButton("🆔 ID", callback_data="menu_id_atalho"), 
+         InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos_atalho")],
+        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
     ])
     
     await query.message.edit_text(texto_membros, reply_markup=teclado_membros, parse_mode="Markdown")
+
 
 async def menu_adm_handler(update, context):
     query = update.callback_query
@@ -43,7 +50,7 @@ async def menu_adm_handler(update, context):
     teclado_adm = InlineKeyboardMarkup([
         [InlineKeyboardButton("🛡️ Proteções do Grupo", callback_data="menu_protecoes")],
         [InlineKeyboardButton("👋 Configurar Bem-Vindo", callback_data="config_bemvindo")],
-        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
     ])
     
     await query.message.edit_text(texto_adm, reply_markup=teclado_adm, parse_mode="Markdown")
