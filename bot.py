@@ -476,15 +476,15 @@ def main():
 
     logger.info("🤖 Bot iniciado! Botões prontos.")
     
-    # ✅ VERSÃO QUE FUNCIONA EM QUALQUER VERSÃO
+    # ✅ VERSÃO COMPATÍVEL COM TODAS AS VERSÕES
     import sys
     try:
-        # Tenta forma simples primeiro
-        application.run_polling()
+        # Tenta com parâmetro compatível com v21.x
+        application.run_polling(drop_pending_updates=True)
     except Exception as e:
-        logger.warning(f"⚠️ Forma simples falhou: {e}")
+        logger.warning(f"⚠️ Com parâmetro falhou: {e}")
         try:
-            # Tenta sem parâmetro nenhum
+            # Tenta sem parâmetro (compatível com v20.x)
             application.run_polling()
         except Exception as e2:
             logger.error(f"❌ Falha total: {e2}")
