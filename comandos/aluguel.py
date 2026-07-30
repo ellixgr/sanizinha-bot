@@ -18,7 +18,6 @@ async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     chat = update.effective_chat
     
-    # SEGURANÇA: Se não for chat privado, impede abrir o painel e manda para o privado
     if chat and chat.type in ["group", "supergroup", "channel"]:
         if query:
             await query.answer("⚠️ Por segurança, o painel de aluguel só pode ser aberto no chat privado!", show_alert=True)
@@ -53,7 +52,7 @@ async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("➕", callback_data="aluguel_mais")
         ],
         [InlineKeyboardButton("⚡ Gerar Código Pix", callback_data="aluguel_gerar_pix")],
-        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
     ])
     
     if query:
@@ -61,6 +60,7 @@ async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
     else:
         await update.message.reply_text(texto, reply_markup=teclado, parse_mode="Markdown")
+
 
 async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -111,11 +111,12 @@ async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_
             InlineKeyboardButton("➕", callback_data="aluguel_mais")
         ],
         [InlineKeyboardButton("⚡ Gerar Código Pix", callback_data="aluguel_gerar_pix")],
-        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
     ])
     
     await query.answer()
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+
 
 # --- GERAÇÃO DO PIX VIA MERCADO PAGO ---
 async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -152,7 +153,7 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         link_adicao = f"https://t.me/{context.bot.username}?startgroup=true"
         teclado_dono = InlineKeyboardMarkup([
             [InlineKeyboardButton("🤖 Adicionar ao seu Grupo/Canal", url=link_adicao)],
-            [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="menu_aluguel")]
+            [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
         ])
         await query.answer("Acesso liberado de Dono!", show_alert=False)
         await query.message.edit_text(texto_dono, reply_markup=teclado_dono, parse_mode="Markdown")
@@ -218,7 +219,7 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             teclado_status = InlineKeyboardMarkup([
                 [InlineKeyboardButton("📋 Copiar Código Pix", copy_text=CopyTextButton(qr_data))],
                 [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{payment_id}")],
-                [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="menu_aluguel")]
+                [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
             ])
             
             await query.message.edit_text(texto_pix, reply_markup=teclado_status, parse_mode="Markdown")
@@ -227,6 +228,7 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_text(f"⚠️ Erro ao gerar Pix no Mercado Pago: {err_msg}")
     except Exception as e:
         await query.message.reply_text(f"⚠️ Falha de comunicação com a API de pagamentos: {e}")
+
 
 async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -264,13 +266,14 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
             )
             teclado_add = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🤖 Adicionar ao seu Grupo/Canal", url=link_adicao)],
-                [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")]
+                [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
             ])
             await query.message.edit_text(texto_sucesso, reply_markup=teclado_add, parse_mode="Markdown")
         else:
             await query.answer("⏳ O pagamento ainda não foi identificado. Pague o Pix e tente novamente em instantes.", show_alert=True)
     except Exception as e:
         await query.answer(f"⚠️ Erro ao verificar pagamento: {e}", show_alert=True)
+
 
 # --- CONTROLE DE ENTRADA EM GRUPOS ---
 async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -319,6 +322,7 @@ async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_
             await chat.send_message(mensagem_boas_vindas)
         except Exception:
             pass
+
 
 def registrar_aluguel(app):
     app.add_handler(CallbackQueryHandler(painel_aluguel, pattern="^menu_aluguel$"))
