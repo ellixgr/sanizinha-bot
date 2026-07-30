@@ -204,11 +204,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
-    # ✅ BOTÃO ALUGUEL → ABRE O painel_aluguel DO aluguel.py
+    # ✅ ABRE PAINEL DE ALUGUEL
     if dados == "menu_aluguel":
         await query.answer()
         from comandos.aluguel import painel_aluguel
         await painel_aluguel(update, context)
+        return
+
+    # ✅ TRATA OS BOTÕES ➕ ➖ DO ALUGUEL
+    if dados.startswith("aluguel_"):
+        await query.answer()
+        from comandos.aluguel import callback_aluguel_painel, gerar_pix_aluguel
+        if dados == "aluguel_gerar_pix":
+            await gerar_pix_aluguel(update, context)
+        else:
+            await callback_aluguel_painel(update, context)
+        return
+
+    # ✅ TRATA VERIFICAÇÃO DE PAGAMENTO
+    if dados.startswith("checar_pagamento_"):
+        await query.answer()
+        from comandos.aluguel import verificar_status_pagamento
+        await verificar_status_pagamento(update, context)
         return
 
     if dados.startswith("addgrupo_"):
