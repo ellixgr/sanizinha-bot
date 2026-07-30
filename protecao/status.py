@@ -2,7 +2,7 @@ import os
 import asyncio
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, ChatMemberHandler
+from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, ChatMemberHandler, CallbackQueryHandler
 
 # Importação de todos os módulos de proteção atualizados
 from protecao.antilink import executar_antilink
@@ -123,7 +123,7 @@ async def apagar_aviso_futuro(context, mensagem):
     except Exception:
         pass
 
-def gerar_teclado_protecoes(cfg):
+def gerar_teclado_protecoes(cfg, chat_id_grupo=None):
     s_link = "🟢 Ligado" if cfg.get("antilink", True) else "🔴 Desligado"
     s_mencao = "🟢 Ligado" if cfg.get("antimencao", True) else "🔴 Desligado"
     s_foto = "🟢 Ligado" if cfg.get("antifoto", False) else "🔴 Desligado"
@@ -135,17 +135,24 @@ def gerar_teclado_protecoes(cfg):
 
     texto = "🛡️ **PAINEL DE STATUS E PROTEÇÕES DO GRUPO**"
 
+    if chat_id_grupo:
+        prefix = f"prot_priv_toggle_{chat_id_grupo}_"
+        voltar_btn = InlineKeyboardButton("🔙 Voltar às Configurações", callback_data=f"config_grupo_{chat_id_grupo}")
+    else:
+        prefix = "prot_toggle_"
+        voltar_btn = InlineKeyboardButton("🔙 Fechar Painel", callback_data="menu_fechar")
+
     teclado = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"🔗 Anti-Link: {s_link}", callback_data="prot_toggle_antilink")],
-        [InlineKeyboardButton(f"📢 Anti-Menção: {s_mencao}", callback_data="prot_toggle_antimencao")],
-        [InlineKeyboardButton(f"📸 Anti-Foto: {s_foto}", callback_data="prot_toggle_antifoto")],
-        [InlineKeyboardButton(f"🖼️ Anti-Figurinha: {s_figu}", callback_data="prot_toggle_antifigu")],
-        [InlineKeyboardButton(f"⚠️ Anti-Travas: {s_trav}", callback_data="prot_toggle_antitravas")],
-        [InlineKeyboardButton(f"⚡ Anti-Flood: {s_flood}", callback_data="prot_toggle_antiflood")],
-        [InlineKeyboardButton(f"📤 Anti-Encaminhar: {s_encam}", callback_data="prot_toggle_antiencaminhar")],
-        [InlineKeyboardButton(f"📊 Anti-Enquete: {s_enq}", callback_data="prot_toggle_antienquete")],
-        [InlineKeyboardButton("⚙️ Configurar Punição", callback_data="menu_config_punicao")],
-        [InlineKeyboardButton("🔙 Fechar Painel", callback_data="menu_fechar")]
+        [InlineKeyboardButton(f"🔗 Anti-Link: {s_link}", callback_data=f"{prefix}antilink")],
+        [InlineKeyboardButton(f"📢 Anti-Menção: {s_mencao}", callback_data=f"{prefix}antimencao")],
+        [InlineKeyboardButton(f"📸 Anti-Foto: {s_foto}", callback_data=f"{prefix}antifoto")],
+        [InlineKeyboardButton(f"🖼️ Anti-Figurinha: {s_figu}", callback_data=f"{prefix}antifigu")],
+        [InlineKeyboardButton(f"⚠️ Anti-Travas: {s_trav}", callback_data=f"{prefix}antitravas")],
+        [InlineKeyboardButton(f"⚡ Anti-Flood: {s_flood}", callback_data=f"{prefix}antiflood")],
+        [InlineKeyboardButton(f"📤 Anti-Encaminhar: {s_encam}", callback_data=f"{prefix}antiencaminhar")],
+        [InlineKeyboardButton(f"📊 Anti-Enquete: {s_enq}", callback_data=f"{prefix}antienquete")],
+        [InlineKeyboardButton("⚙️ Configurar Punição", callback_data=(f"pun_priv_menu_{chat_id_grupo}" if chat_id_grupo else "menu_config_punicao"))],
+        [voltar_btn]
     ])
     return texto, teclado
 
@@ -218,12 +225,40 @@ async def processar_callback_protecao(update: Update, context: ContextTypes.DEFA
 
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
+    data = query.data
 
+    # ========== PRIVADO: Alternar proteções ==========
+    if data.startswith("prot_priv_toggle_"):
+        partes = data.split("_")
+        chat_id_grupo = int(partes[3])
+        chave = partes[4]
+
+        if not await is_admin(update, context, user_id, chat_id_grupo):
+            await query.answer("⚠️ Apenas administradores!", show_alert=True)
+            return
+
+        cfg = obter_configs(chat_id_grupo)
+        if chave in cfg:
+            cfg[chave] = not cfg[chave]
+            salvar_configs(chat_id_grupo, cfg)
+            await query.answer("✅ Alterado!")
+            texto, teclado = gerar_teclado_protecoes(cfg, chat_id_grupo)
+            await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+        return
+
+    # ========== PRIVADO: Abrir menu punição ==========
+    if data.startswith("pun_priv_menu_"):
+        chat_id_grupo = int(data.split("_")[-1])
+        if not await is_admin(update, context, user_id, chat_id_grupo):
+            await query.answer("⚠️ Apenas administradores!", show_alert=True)
+            return
+        await enviar_painel_punicao_privado(update, context, chat_id_grupo)
+        return
+
+    # ========== GRUPO: Ações normais ==========
     if not await is_admin(update, context, user_id, chat_id):
         await query.answer("⚠️ Apenas administradores podem alterar as configurações!", show_alert=True)
         return
-
-    data = query.data
 
     if data.startswith("prot_toggle_"):
         acao = data.replace("prot_toggle_", "")
@@ -304,48 +339,39 @@ async def monitorar_seguranca(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not chat or not user or chat.type == "private" or not message:
         return
 
-    # Admins passam livremente por todas as proteções
     if await is_admin(update, context, user.id, chat.id):
         return
 
     cfg = obter_configs(chat.id)
 
-    # 1. Anti-Flood (Agora checa rigorosamente se está ativado no DB do grupo)
     if cfg.get("antiflood", True):
         if await executar_antiflod(update, context, chat, user, message, get_db, is_admin, obter_punicao, obter_menção_admins):
             return
 
-    # 2. Anti-Link
     if cfg.get("antilink", True):
         if await executar_antilink(update, context, chat, user, message, get_db, is_admin, obter_punicao, salvar_punicao, apagar_aviso_futuro):
             return
 
-    # 3. Anti-Menção
     if cfg.get("antimencao", True):
         if await executar_antimencao(update, context, chat, user, message, get_db, is_admin, obter_punicao, salvar_punicao, apagar_aviso_futuro):
             return
 
-    # 4. Anti-Foto
     if cfg.get("antifoto", False):
         if await executar_antiimagem(update, context, chat, user, message, get_db, is_admin, obter_punicao, salvar_punicao, apagar_aviso_futuro):
             return
 
-    # 5. Anti-Figurinha
     if cfg.get("antifigu", False):
         if await executar_antifigu(update, context, chat, user, message, get_db, is_admin, obter_punicao, salvar_punicao, apagar_aviso_futuro):
             return
 
-    # 6. Anti-Travas
     if cfg.get("antitravas", True):
         if await executar_antitrava(update, context, chat, user, message, get_db, is_admin, obter_punicao, salvar_punicao, apagar_aviso_futuro):
             return
 
-    # 7. Anti-Encaminhar
     if cfg.get("antiencaminhar", True):
         if await executar_antiencaminhar(update, context, chat, user, message, get_db, is_admin, obter_punicao, salvar_punicao, apagar_aviso_futuro):
             return
 
-    # 8. Anti-Enquete
     if cfg.get("antienquete", True):
         if await executar_antienquete(update, context, chat, user, message, get_db, is_admin, obter_punicao, salvar_punicao, apagar_aviso_futuro):
             return
@@ -366,8 +392,117 @@ async def limpar_dados_grupo_removido(update: Update, context: ContextTypes.DEFA
         except Exception:
             pass
 
+# ═══════════════════════════════════════════
+# ✅ FUNÇÕES DE CONFIGURAÇÃO PELO PRIVADO
+# ═══════════════════════════════════════════
+
+async def enviar_painel_protecoes_privado(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id_grupo: int):
+    """Abre painel de proteções de um grupo pelo privado do bot"""
+    query = update.callback_query
+    uid = update.effective_user.id
+
+    if not await is_admin(update, context, uid, chat_id_grupo):
+        await query.answer("⚠️ Apenas administradores!", show_alert=True)
+        return
+
+    cfg = obter_configs(chat_id_grupo)
+    texto, teclado = gerar_teclado_protecoes(cfg, chat_id_grupo)
+    
+    await query.answer()
+    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+
+async def enviar_painel_punicao_privado(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id_grupo: int):
+    """Abre painel de punição de um grupo pelo privado do bot"""
+    query = update.callback_query
+    uid = update.effective_user.id
+
+    if not await is_admin(update, context, uid, chat_id_grupo):
+        await query.answer("⚠️ Apenas administradores!", show_alert=True)
+        return
+
+    punicao = obter_punicao(chat_id_grupo)
+    acoes_nomes = {
+        "aviso_ban": "⚠️ 1º Aviso, 2º Banimento",
+        "remover": "🔨 Remover / Banir Direto",
+        "silenciar": "🔇 Silenciar (Mute)"
+    }
+    nome_acao_atual = acoes_nomes.get(punicao["acao"], "⚠️ 1º Aviso, 2º Banimento")
+    status_apagar = "🟢 Sim" if punicao["apagar_msg"] else "🔴 Não"
+    tempo_str = f"{punicao['tempo_mute']} minuto(s)"
+
+    texto = (
+        f"⚙️ **CONFIGURAR PUNIÇÃO**\n\n"
+        f"📌 **Tipo de Punição:** `{nome_acao_atual}`\n"
+        f"🗑️ **Apagar Mensagem:** `{status_apagar}`\n"
+        f"⏱️ **Tempo de Silenciamento:** `{tempo_str}`"
+    )
+
+    teclado = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"📌 Tipo: {nome_acao_atual}", callback_data=f"pun_priv_trocar_{chat_id_grupo}")],
+        [InlineKeyboardButton(f"🗑️ Apagar: {status_apagar}", callback_data=f"pun_priv_apagar_{chat_id_grupo}")],
+        [
+            InlineKeyboardButton("➖", callback_data=f"pun_priv_menos_{chat_id_grupo}"),
+            InlineKeyboardButton(f"⏱️ {punicao['tempo_mute']}min", callback_data="pun_ignorar"),
+            InlineKeyboardButton("➕", callback_data=f"pun_priv_mais_{chat_id_grupo}")
+        ],
+        [InlineKeyboardButton("🔙 Voltar", callback_data=f"config_grupo_{chat_id_grupo}")]
+    ])
+
+    await query.answer()
+    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+
+async def processar_callback_punicao_privado(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    uid = update.effective_user.id
+
+    partes = data.split("_")
+    chat_id_grupo = int(partes[-1])
+    acao = "_".join(partes[:-1])
+
+    if not await is_admin(update, context, uid, chat_id_grupo):
+        await query.answer("⚠️ Apenas administradores!", show_alert=True)
+        return
+
+    if acao == "pun_priv_trocar":
+        p = obter_punicao(chat_id_grupo)
+        ciclo = {"aviso_ban": "remover", "remover": "silenciar", "silenciar": "aviso_ban"}
+        p["acao"] = ciclo.get(p["acao"], "aviso_ban")
+        salvar_punicao(chat_id_grupo, p)
+        await query.answer("✅ Tipo alterado!")
+        await enviar_painel_punicao_privado(update, context, chat_id_grupo)
+
+    elif acao == "pun_priv_apagar":
+        p = obter_punicao(chat_id_grupo)
+        p["apagar_msg"] = not p["apagar_msg"]
+        salvar_punicao(chat_id_grupo, p)
+        await query.answer("✅ Alterado!")
+        await enviar_painel_punicao_privado(update, context, chat_id_grupo)
+
+    elif acao == "pun_priv_menos":
+        p = obter_punicao(chat_id_grupo)
+        if p["tempo_mute"] > 1:
+            p["tempo_mute"] -= 1
+            salvar_punicao(chat_id_grupo, p)
+            await query.answer(f"⏱️ {p['tempo_mute']} min")
+        else:
+            await query.answer("Mínimo 1 min!", show_alert=True)
+        await enviar_painel_punicao_privado(update, context, chat_id_grupo)
+
+    elif acao == "pun_priv_mais":
+        p = obter_punicao(chat_id_grupo)
+        if p["tempo_mute"] < 1440:
+            p["tempo_mute"] += 1
+            salvar_punicao(chat_id_grupo, p)
+            await query.answer(f"⏱️ {p['tempo_mute']} min")
+        else:
+            await query.answer("Máximo 1440 min!", show_alert=True)
+        await enviar_painel_punicao_privado(update, context, chat_id_grupo)
+
 def registrar_protecoes(app):
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("stts", cmd_status))
     app.add_handler(MessageHandler(~filters.StatusUpdate.ALL, monitorar_seguranca), group=1)
     app.add_handler(ChatMemberHandler(limpar_dados_grupo_removido, ChatMemberHandler.MY_CHAT_MEMBER))
+    app.add_handler(CallbackQueryHandler(processar_callback_protecao, pattern="^(prot_toggle_|menu_|pun_tempo_|pun_toggle_|pun_trocar_|prot_priv_toggle_|pun_priv_menu_)"))
+    app.add_handler(CallbackQueryHandler(processar_callback_punicao_privado, pattern="^pun_priv_"))
