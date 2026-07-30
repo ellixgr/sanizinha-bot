@@ -7,7 +7,7 @@ from flask import Flask
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     TypeHandler, ContextTypes, filters, MessageHandler, ApplicationHandlerStop
 )
 
@@ -28,7 +28,6 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 MONGO_URI = os.environ.get("MONGO_URI", "").strip()
 DONO_ID = os.environ.get("DONO_ID", "0").strip()
 
-# ✅ TESTE — VAI APARECER NOS LOGS
 if not TELEGRAM_TOKEN:
     logger.error("❌ TELEGRAM_TOKEN ESTÁ VAZIO!")
 else:
@@ -135,9 +134,9 @@ async def interceptador_grupos_nao_autorizados(update: Update, context: ContextT
     chat = update.effective_chat
     user = update.effective_user
     if not chat or chat.type == "private":
-        return
+        return  # ✅ DEIXA PRIVADO PASSAR SEM RESTRIÇÃO
     if DONO_ID and str(user.id) == str(DONO_ID):
-        return
+        return  # ✅ DEIXA O DONO PASSAR EM QUALQUER GRUPO
     if not await grupo_autorizado(chat.id):
         raise ApplicationHandlerStop
 
@@ -175,7 +174,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     agora = datetime.now(FUSO_BR)
     hora = agora.strftime("%H:%M:%S")
     data = agora.strftime("%d/%m/%Y")
-    
+
     texto = (
         "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
         f"✰┃👤 : {user.first_name}\n"
@@ -184,59 +183,56 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✰┃☀️ : {data}\n"
         "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
     )
-    
+
     botoes = [
         [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
         [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
-    
+
     if chat.type == "private" and await verificar_assinante(user.id):
         botoes.insert(2, [InlineKeyboardButton("⚙️ Configurar Grupos", callback_data="menu_config_grupos")])
-    
+
     if DONO_ID and str(user.id) == str(DONO_ID):
         botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono", callback_data="menu_dono")])
-    
+
     await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 async def exibir_painel_config_grupo_privado(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id_grupo: int, nome_grupo: str):
     query = update.callback_query
     uid = update.effective_user.id
-    
+
     if not await verificar_se_e_adm(update, context, chat_id_grupo):
         await query.answer("⚠️ Você não é administrador deste grupo!", show_alert=True)
         return
-    
+
     texto = f"⚙️ **CONFIGURAÇÕES DO GRUPO**\n📌 {nome_grupo}\n🆔 `{chat_id_grupo}`"
-    
+
     botoes = InlineKeyboardMarkup([
         [InlineKeyboardButton("🛡️ Proteções do Grupo", callback_data=f"prot_grupo_{chat_id_grupo}")],
         [InlineKeyboardButton("👋 Mensagem de Boas-Vindas", callback_data=f"bemvindo_grupo_{chat_id_grupo}")],
         [InlineKeyboardButton("⚖️ Configurar Punição", callback_data=f"punicao_grupo_{chat_id_grupo}")],
         [InlineKeyboardButton("🔙 Voltar aos Meus Grupos", callback_data="menu_config_grupos")]
     ])
-    
+
     await query.message.edit_text(texto, reply_markup=botoes, parse_mode="Markdown")
 
-# ✅ HANDLER PRINCIPAL — CORRIGIDO E PRIMEIRO
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
         return
-    
+
     uid = update.effective_user.id
     chat = query.message.chat
     dados = query.data
     logger.info(f"📥 CLIQUE: {dados} | Usuário: {uid}")
 
-    # 🔙 VOLTAR AO MENU PRINCIPAL
     if dados in ["voltar_menu_principal", "voltar_menu", "ver_comandos", "voltar_principal_grupo", "menu_voltar_inicio"]:
         await query.answer()
         await start(update, context)
         return
 
-    # ⚙️ MENU CONFIGURAR GRUPOS
     if dados == "menu_config_grupos":
         if chat.type != "private":
             await query.answer("Acesse pelo privado!", show_alert=True)
@@ -258,18 +254,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ➕ ADDGRUPO
     if dados.startswith("addgrupo_"):
         await processar_callback_addgrupo(update, context, get_db, FUSO_BR)
         return
 
-    # ✅ VERIFICAÇÃO DE GRUPO AUTORIZADO
     if not (DONO_ID and str(uid) == str(DONO_ID)):
         if chat.type != "private" and not await grupo_autorizado(chat.id):
             await query.answer("❌ Grupo não autorizado!", show_alert=True)
             return
 
-    # 📋 === BOTÕES DO MENU START ===
     if dados == "menu_membros":
         await query.answer()
         await menu_membros_handler(update, context)
@@ -302,7 +295,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await executar_clear_deploy(update, context)
         return
 
-    # 🎮 JOGOS
     elif dados == "menu_jogos_atalho":
         await query.answer()
         await menu_jogos_handler(update, context)
@@ -317,7 +309,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await processar_callback_jogos(update, context)
         return
 
-    # 👤 PERFIL / ID
     elif dados == "botao_ping":
         await query.answer()
         from comandos.ping import ping_cmd
@@ -356,7 +347,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_membros")]]), parse_mode="Markdown")
         return
 
-    # ⚙️ OUTROS
     elif dados == "config_bemvindo":
         if not await verificar_se_e_adm(update, context):
             await query.answer("Só ADM!", show_alert=True)
@@ -422,20 +412,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     threading.Thread(target=run_web, daemon=True).start()
-    
-    # ✅ LINHA CORRIGIDA — SEM NENHUM PARÂMETRO PROBLEMÁTICO
+
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # 🔷 INTERCEPTADORES
-    application.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
-    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
-    application.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
-    application.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
-
-    # ✅ HANDLER DE BOTÕES
+    # ✅ PRIMEIRO: REGISTRA TODOS OS COMANDOS E BOTÕES
     application.add_handler(CallbackQueryHandler(button_handler))
 
-    # 📦 OUTROS COMANDOS
     from comandos.ping import registrar_ping
     from comandos.id import registrar_id
     from comandos.perfil import registrar_perfil
@@ -473,18 +455,20 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
 
+    # ✅ DEPOIS DE TUDO: REGISTRA OS INTERCEPTADORES (PROTEÇÕES)
+    application.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
+    application.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
+    application.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
     logger.info("🤖 Bot iniciado! Botões prontos.")
-    
-    # ✅ VERSÃO COMPATÍVEL COM TODAS AS VERSÕES
+
     import sys
     try:
-        # Tenta com parâmetro compatível com v21.x
         application.run_polling(drop_pending_updates=True)
     except Exception as e:
         logger.warning(f"⚠️ Com parâmetro falhou: {e}")
         try:
-            # Tenta sem parâmetro (compatível com v20.x)
             application.run_polling()
         except Exception as e2:
             logger.error(f"❌ Falha total: {e2}")
