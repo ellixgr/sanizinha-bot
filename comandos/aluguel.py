@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 import requests
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -40,7 +41,7 @@ async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("📅 1 Mês — R$ 10,00", callback_data="aluguel_info_mes"),
          InlineKeyboardButton("➕", callback_data="aluguel_mais")],
         [InlineKeyboardButton("⚡ Gerar Pix", callback_data="aluguel_gerar_pix")],
-        [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
+        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
     ])
     await query.answer()
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
@@ -51,10 +52,8 @@ async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_
     user_id = update.effective_user.id
     dados = query.data
 
-    # ✅ PEGA OU INICIA OS VALORES
     meses = context.user_data.get(f"aluguel_meses_{user_id}", 1)
 
-    # ✅ AUMENTA/DIMINUI
     if dados == "aluguel_mais":
         meses = min(12, meses + 1)
     elif dados == "aluguel_menos":
@@ -63,7 +62,6 @@ async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_
         await query.answer("Use os botões ➕ e ➖", show_alert=False)
         return
 
-    # ✅ ATUALIZA VALORES
     valor = meses * 10.00
     context.user_data[f"aluguel_meses_{user_id}"] = meses
     context.user_data[f"aluguel_valor_{user_id}"] = valor
@@ -74,7 +72,7 @@ async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_
          InlineKeyboardButton(f"📅 {meses} Mês — R$ {valor:.2f}".replace('.', ','), callback_data="aluguel_info_mes"),
          InlineKeyboardButton("➕", callback_data="aluguel_mais")],
         [InlineKeyboardButton("⚡ Gerar Pix", callback_data="aluguel_gerar_pix")],
-        [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
+        [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
     ])
     await query.answer()
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
@@ -96,7 +94,7 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "👑 **Licença ativada com sucesso!**\n\nAdicione o bot ao seu grupo:",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
-                [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
+                [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
             ]), parse_mode="Markdown"
         )
         return
@@ -106,10 +104,18 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await query.answer("⚡ Gerando pagamento...")
+    
+    # ✅ Chave obrigatória do Mercado Pago
+    idempotency_key = str(uuid.uuid4())
+
     try:
         resp = requests.post(
             "https://api.mercadopago.com/v1/payments",
-            headers={"Authorization": f"Bearer {MP_ACCESS_TOKEN}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+                "Content-Type": "application/json",
+                "X-Idempotency-Key": idempotency_key
+            },
             json={
                 "transaction_amount": valor,
                 "description": f"Aluguel SanizinhaBot - {meses} meses",
@@ -127,10 +133,11 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "$set": {"user_id": user_id, "meses": meses, "valor": valor, "status": "pendente"}
             }, upsert=True)
             await query.message.edit_text(
-                f"⚡ **PIX GERADO!**\n💸 Valor: R$ {valor:.2f}\n\n📋 Copie o código abaixo:\n\n`{qr}`",
+                f"⚡ **PIX GERADO!**\n💸 Valor: R$ {valor:.2f}\n\n📋 **Código Pix:**\n\n`{qr}`\n\n👇 Copie o código abaixo:",
                 reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📋 Copiar Código", callback_data=f"copiar_pix:{pid}")],
                     [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{pid}")],
-                    [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
+                    [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_painel")]
                 ]), parse_mode="Markdown"
             )
         else:
@@ -162,10 +169,10 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
                 db["alugueis_pendentes"].update_one({"payment_id": int(pid)}, {"$set": {"status": "pago"}})
             link = f"https://t.me/{context.bot.username}?startgroup=true"
             await query.message.edit_text(
-                "✅ **PAGAMENTO CONFIRMADO!**\n\nAdicione o bot ao seu grupo:",
+                "✅ **PAGAMENTO CONFIRMADO!** 🎉\n\nAdicione o bot ao seu grupo:",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
-                    [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
+                    [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_painel")]
                 ]), parse_mode="Markdown"
             )
         elif status in ["pending", "in_process"]:
@@ -174,6 +181,26 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
             await query.answer(f"❌ Status: {status}", show_alert=True)
     except Exception as e:
         await query.answer(f"Erro: {str(e)}", show_alert=True)
+
+
+async def voltar_ao_painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await painel_aluguel(update, context)
+
+
+async def copiar_codigo_pix(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    dados = query.data
+    pid = dados.split(":")[1]
+    
+    db = get_db()
+    pendente = db["alugueis_pendentes"].find_one({"payment_id": int(pid)})
+    if pendente:
+        qr = pendente.get("qr_code", "")
+        await query.answer(f"Código copiado! ✅", show_alert=True)
+    else:
+        await query.answer("Código não encontrado!", show_alert=True)
 
 
 async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -202,4 +229,5 @@ def registrar_aluguel(app):
     app.add_handler(CallbackQueryHandler(callback_aluguel_painel, pattern="^aluguel_(mais|menos|info_mes)$"))
     app.add_handler(CallbackQueryHandler(gerar_pix_aluguel, pattern="^aluguel_gerar_pix$"))
     app.add_handler(CallbackQueryHandler(verificar_status_pagamento, pattern="^checar_pagamento_"))
+    app.add_handler(CallbackQueryHandler(voltar_ao_painel, pattern="^voltar_painel$"))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, verificar_entrada_grupo))
