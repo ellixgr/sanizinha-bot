@@ -24,9 +24,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-MONGO_URI = os.environ.get("MONGO_URI")
-DONO_ID = os.environ.get("DONO_ID")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
+MONGO_URI = os.environ.get("MONGO_URI", "").strip()
+DONO_ID = os.environ.get("DONO_ID", "0").strip()
+
+# ✅ TESTE — VAI APARECER NOS LOGS
+if not TELEGRAM_TOKEN:
+    logger.error("❌ TELEGRAM_TOKEN ESTÁ VAZIO!")
+else:
+    logger.info(f"✅ Token carregado! Tamanho: {len(TELEGRAM_TOKEN)}")
+
 
 FUSO_BR = timezone(timedelta(hours=-3))
 
