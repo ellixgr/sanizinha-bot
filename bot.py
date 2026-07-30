@@ -422,16 +422,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     threading.Thread(target=run_web, daemon=True).start()
-    # ✅ LINHA CORRIGIDA — TIMEOUT ADICIONADO
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).get_updates_read_timeout(15).build()
-    # 🔷 INTERCEPTADORES (executam primeiro)
-    app.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
-    app.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
-    app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
+    
+    # ✅ LINHA CORRIGIDA — SEM NENHUM PARÂMETRO PROBLEMÁTICO
+    application = ApplicationBuilder().token(TELEGRAM_TOKEN).get_updates_read_timeout(15).build()
 
-    # ✅ BOTÃO HANDLER — REGISTRADO PRIMEIRO ANTES DE TUDO
-    app.add_handler(CallbackQueryHandler(button_handler))
+    # 🔷 INTERCEPTADORES
+    application.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
+    application.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
+    application.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
+
+    # ✅ HANDLER DE BOTÕES
+    application.add_handler(CallbackQueryHandler(button_handler))
 
     # 📦 OUTROS COMANDOS
     from comandos.ping import registrar_ping
@@ -454,26 +456,27 @@ def main():
     from comandos.jogos.dama import setup_dama
     from comandos.jogos.xadrez import setup_xadrez
 
-    setup_velha(app); setup_memoria(app); setup_dama(app); setup_xadrez(app)
-    registrar_figurinha(app); registrar_promover(app); registrar_rank(app); registrar_marcar(app)
-    registrar_citar(app); registrar_protecoes(app); registrar_comandos_bv(app)
-    registrar_ping(app); registrar_id(app); registrar_perfil(app); registrar_ban(app)
-    setup_play(app); registrar_mutar(app); registrar_deploy(app); registrar_aluguel(app)
+    setup_velha(application); setup_memoria(application); setup_dama(application); setup_xadrez(application)
+    registrar_figurinha(application); registrar_promover(application); registrar_rank(application); registrar_marcar(application)
+    registrar_citar(application); registrar_protecoes(application); registrar_comandos_bv(application)
+    registrar_ping(application); registrar_id(application); registrar_perfil(application); registrar_ban(application)
+    setup_play(application); registrar_mutar(application); registrar_deploy(application); registrar_aluguel(application)
 
-    app.add_handler(CommandHandler("lw", cmd_registrar_aluguel_dono))
+    application.add_handler(CommandHandler("lw", cmd_registrar_aluguel_dono))
 
     async def wrapper_addgrupo(update, context):
         await cmd_addgrupo(update, context, get_db, DONO_ID, FUSO_BR)
-    app.add_handler(CommandHandler("addgrupo", wrapper_addgrupo))
+    application.add_handler(CommandHandler("addgrupo", wrapper_addgrupo))
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
-    app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
+    application.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
 
-    app.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("start", start))
 
     logger.info("🤖 Bot iniciado! Botões prontos.")
-    # ✅ LINHA CORRIGIDA — close_loop=False
-    app.run_polling(drop_pending_updates=True)
+    
+    # ✅ LINHA FINAL — SEM NENHUM PARÂMETRO EXTRA
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
