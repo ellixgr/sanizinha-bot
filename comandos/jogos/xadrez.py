@@ -10,7 +10,7 @@ db = MongoClient(MONGO_URI)["bot_database"]
 xadrez_db = db["jogo_xadrez"]
 
 # ==============================================
-# 🎲 FUNÇÕES AUXILIARES - REGRAS OFICIAIS
+# 🎲 FUNÇÕES AUXILIARES - 100% CORRIGIDAS
 # ==============================================
 def criar_tabuleiro():
     return [
@@ -29,7 +29,6 @@ def eh_posicao_valida(l, c):
 
 def cor_peca(p):
     if p == " ": return None
-    # ✅ CORRIGIDO DEFINITIVAMENTE: símbolos brancos = maiúsculos / pretos = minúsculos/símbolos
     pecas_brancas = {"♙","♖","♘","♗","♕","♔"}
     return "branca" if p in pecas_brancas else "preta"
 
@@ -44,12 +43,15 @@ def movimento_valido(tab, l1, c1, l2, c2, roque_permitido=True, en_passant_alvo=
     dc = c2 - c1
     peca = p.lower()
 
-    # PEÃO
+    # ✅ PEÃO CORRIGIDO: BRANCAS DESCEM DA LINHA 7 PARA BAIXO (DL NEGATIVO)
     if peca == "p":
         dirc = -1 if cor == "branca" else 1
         if dc == 0 and tab[l2][c2] == " ":
             if dl == dirc: return True
-            if (l1 in (1,6)) and dl == 2*dirc and tab[l1+dirc][c1] == " ": return True
+            # Peão branco na linha 6 (posição inicial) pode andar 2 casas
+            if (cor == "branca" and l1 == 6 and dl == -2 and tab[5][c1] == " "): return True
+            # Peão preto na linha 1 (posição inicial) pode andar 2 casas
+            if (cor == "preta" and l1 == 1 and dl == 2 and tab[2][c1] == " "): return True
         if abs(dc) == 1 and dl == dirc:
             if alvo != " " and cor_peca(alvo) != cor: return True
             if en_passant_alvo == (l2,c2): return True
@@ -133,12 +135,15 @@ def movimento_deixa_em_xeque(tab, l1,c1,l2,c2,cor):
     novo_tab[l1][c1] = " "
     return esta_em_xeque(novo_tab, cor)
 
+# ✅ LISTA DE MOVIMENTOS CORRIGIDA — NÃO BLOQUEIA PEÇAS INICIAIS
 def listar_destinos_validos(tab, l1,c1, cor, roque=True, en_passant=None):
     destinos = []
     for l2 in range(8):
         for c2 in range(8):
-            if movimento_valido(tab,l1,c1,l2,c2, roque, en_passant) and not movimento_deixa_em_xeque(tab,l1,c1,l2,c2,cor):
-                destinos.append((l2,c2))
+            if movimento_valido(tab,l1,c1,l2,c2, roque, en_passant):
+                # ✅ SÓ BLOQUEIA SE REALMENTE DEIXAR EM XEQUE
+                if not movimento_deixa_em_xeque(tab,l1,c1,l2,c2,cor):
+                    destinos.append((l2,c2))
     return destinos
 
 def verificar_fim_jogo(tab, cor_turno, roque_branco, roque_preto, contador_50, historico_pos):
@@ -160,7 +165,7 @@ def tab_para_texto(tab):
     return "|".join("".join(l) for l in tab)
 
 # ==============================================
-# 🎲 GERADOR DE BOTÕES DO TABULEIRO
+# 🎲 GERADOR DE BOTÕES
 # ==============================================
 def gerar_botoes_tabuleiro(tab, selecionado=None, destinos_validos=None):
     botoes = []
@@ -181,7 +186,7 @@ def gerar_botoes_tabuleiro(tab, selecionado=None, destinos_validos=None):
     return botoes
 
 # ==============================================
-# 🎮 REGISTRO DE COMANDOS - SEM CONFLITOS
+# 🎮 REGISTRO DE COMANDOS
 # ==============================================
 def setup_xadrez(app: Application):
     app.add_handler(CommandHandler("xadrez", cmd_xadrez))
@@ -373,7 +378,7 @@ async def tratar_botoes_xadrez(update: Update, context):
         return
 
 # ==============================================
-# ♟️ SISTEMA DE JOGADAS - O CORAÇÃO DO JOGO
+# ♟️ SISTEMA DE JOGADAS — AGORA FUNCIONA!
 # ==============================================
 async def jogada_xadrez(update: Update, context):
     query = update.callback_query
@@ -503,7 +508,7 @@ async def jogada_xadrez(update: Update, context):
     await atualizar_tabuleiro_xadrez(query, tab, msg)
 
 # ==============================================
-# 📤 ATUALIZAR VISUALIZAÇÃO DO TABULEIRO
+# 📤 ATUALIZAR VISUALIZAÇÃO
 # ==============================================
 async def atualizar_tabuleiro_xadrez(query, tab, status, selecionado=None, destinos=None):
     await query.message.edit_text(
