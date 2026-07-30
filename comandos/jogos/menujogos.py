@@ -34,7 +34,6 @@ async def processar_callback_jogos(update: Update, context: ContextTypes.DEFAULT
     elif data == "jogo_memoria":
         await query.answer("Jogo da Memória em breve!")
     elif data == "jogo_xadrez":
-        # ✅ AGORA CHAMA DIREITO O MENU DO XADREZ
         await query.answer("Abrindo Xadrez...")
         await menu_xadrez_handler(update, context)
     elif data == "jogo_dama":
