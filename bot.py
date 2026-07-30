@@ -12,9 +12,7 @@ from telegram.ext import (
     MessageHandler, ContextTypes, filters
 )
 
-# ✅ IMPORTA OS COMANDOS DO cmd.py
 from cmd import ler_comandos_membros, ler_comandos_adm
-
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 from protecao.antiflod import executar_antiflod
 from protecao.status import obter_punicao, obter_mencao_admins_str
@@ -101,7 +99,6 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-# ✅ MOSTRA COMANDOS DE MEMBROS
 async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -109,7 +106,6 @@ async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ MOSTRA COMANDOS DE ADMINISTRADORES
 async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -117,13 +113,11 @@ async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ FUNÇÃO START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
     query = update.callback_query
 
-    # ✅ BLOQUEIA /start em grupos não cadastrados
     if chat.type in ["group", "supergroup"]:
         if DONO_ID and str(user.id) == str(DONO_ID):
             pass
@@ -142,7 +136,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
             return
 
-    # ✅ SE FOR PRIVADO
     if chat.type == "private":
         texto = (
             "👋 Olá! Bem-vindo ao Bot!\n\n"
@@ -156,7 +149,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             botoes.insert(2, [InlineKeyboardButton("⚙️ Configurar Grupos", callback_data="menu_config_grupos")])
         botoes = InlineKeyboardMarkup(botoes)
     else:
-        # ✅ SE FOR GRUPO AUTORIZADO → MENU COMPLETO
         agora = datetime.now(FUSO_BR)
         hora = agora.strftime("%H:%M:%S")
         data = agora.strftime("%d/%m/%Y")
@@ -183,7 +175,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(texto, reply_markup=botoes, parse_mode="Markdown")
 
-# ✅ GERENCIADOR DE BOTÕES
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
@@ -191,19 +182,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = query.data
     logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ BOTÃO VOLTAR
     if dados in ["voltar_menu_principal", "voltar_menu"]:
         await query.answer()
         await start(update, context)
         return
 
-    # ✅ COMANDOS DE MEMBROS
     if dados == "menu_membros":
         await query.answer()
         await menu_membros_handler(update, context)
         return
 
-    # ✅ COMANDOS DE ADMINISTRADORES
     if dados == "menu_adm":
         await query.answer()
         await menu_adm_handler(update, context)
@@ -216,6 +204,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
+    # ✅ BOTÃO ALUGUEL → ABRE O painel_aluguel DO aluguel.py
     if dados == "menu_aluguel":
         await query.answer()
         from comandos.aluguel import painel_aluguel
