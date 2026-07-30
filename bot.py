@@ -2,7 +2,7 @@ import os
 import logging
 import threading
 import time
-import asyncio  # ✅ ADICIONADO
+import asyncio
 from datetime import datetime, timezone, timedelta
 from flask import Flask
 from pymongo import MongoClient
@@ -131,9 +131,22 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
+# ✅ ✅ ✅ INTERCEPTADOR CORRIGIDO — DEIXA O VOLTAR PASSAR SEMPRE! ✅ ✅ ✅
 async def interceptador_grupos_nao_autorizados(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
+
+    # ✅ DEIXA O BOTÃO VOLTAR PASSAR ANTES DE TUDO!
+    if update.callback_query:
+        dados = update.callback_query.data
+        botoes_voltar = [
+            "voltar_menu_principal", "voltar_menu", "ver_comandos",
+            "voltar_principal_grupo", "menu_voltar_inicio"
+        ]
+        if dados in botoes_voltar:
+            return  # ✅ NÃO BLOQUEIA, DEIXA PASSAR!
+
+    # ✅ RESTO DO BLOQUEIO NORMAL
     if not chat or chat.type == "private":
         return
     if DONO_ID and str(user.id) == str(DONO_ID):
@@ -414,14 +427,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    # ✅ CRIA O EVENT LOOP ANTES DE TUDO
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-    # ✅ INICIA SERVIDOR WEB EM THREAD SEPARADA
     threading.Thread(target=run_web, daemon=True).start()
 
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -472,7 +483,6 @@ def main():
 
     logger.info("🤖 Bot iniciado! Botões prontos.")
 
-    # ✅ INICIA O POLLING COM O LOOP CORRETO
     import sys
     try:
         loop.run_until_complete(application.run_polling(drop_pending_updates=True))
