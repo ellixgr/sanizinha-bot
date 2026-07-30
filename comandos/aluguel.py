@@ -2,7 +2,7 @@ import os
 import time
 import requests
 from pymongo import MongoClient
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 MONGO_URI = os.environ.get("MONGO_URI")
@@ -17,7 +17,6 @@ async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user_id = update.effective_user.id
 
-    # ✅ SE CLICAR NO GRUPO → MANDA IR AO PRIVADO
     if chat and chat.type != "private":
         await query.answer("🔒 Use no privado!", show_alert=True)
         link = f"https://t.me/{context.bot.username}?start=aluguel"
@@ -82,7 +81,6 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     meses = context.user_data.get(f"aluguel_meses_{user_id}", 1)
     valor = meses * 10.00
 
-    # ✅ DONO GANHA DE GRAÇA
     if str(user_id) == str(DONO_ID):
         db = get_db()
         expira = time.time() + meses * 30 * 86400
@@ -123,9 +121,8 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "$set": {"user_id": user_id, "meses": meses, "valor": valor, "status": "pendente"}
             }, upsert=True)
             await query.message.edit_text(
-                f"⚡ **PIX GERADO!**\n💸 Valor: R$ {valor:.2f}\n\n`{qr}`",
+                f"⚡ **PIX GERADO!**\n💸 Valor: R$ {valor:.2f}\n\n📋 Copie o código abaixo:\n\n`{qr}`",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📋 Copiar Código", copy_text=CopyTextButton(qr))],
                     [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{pid}")],
                     [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
                 ]), parse_mode="Markdown"
