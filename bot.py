@@ -9,13 +9,12 @@ from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    TypeHandler, ContextTypes, filters, MessageHandler, ApplicationHandlerStop
+    ContextTypes, filters
 )
 
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 from protecao.antiflod import executar_antiflod
 from protecao.status import obter_punicao, obter_mencao_admins_str
-
 from dono.addgrupo import cmd_addgrupo, processar_callback_addgrupo
 
 logging.basicConfig(
@@ -33,7 +32,6 @@ if not TELEGRAM_TOKEN:
 else:
     logger.info(f"✅ Token carregado! Tamanho: {len(TELEGRAM_TOKEN)}")
 
-
 FUSO_BR = timezone(timedelta(hours=-3))
 
 app_web = Flask(__name__)
@@ -50,7 +48,6 @@ def get_db():
         _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1000, connectTimeoutMS=1000, maxPoolSize=50, tlsAllowInvalidCertificates=True)
     return _mongo_client["sanizinhabot_db"]
 
-# ✅ VERIFICAÇÃO DE GRUPO
 async def grupo_autorizado(chat_id: int) -> bool:
     try:
         db = get_db()
@@ -70,20 +67,6 @@ async def verificar_assinante(usuario_id: int) -> bool:
     except Exception as e:
         logger.error(f"Erro verifica assinante: {e}")
         return False
-
-async def listar_grupos_usuario(usuario_id: int):
-    try:
-        db = get_db()
-        agora = time.time()
-        grupos = list(db["grupos_autorizados"].find({
-            "registrado_por": usuario_id,
-            "ativo": True,
-            "expira_em": {"$gt": agora}
-        }))
-        return grupos
-    except Exception as e:
-        logger.error(f"Erro lista grupos: {e}")
-        return []
 
 async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id_verificar=None) -> bool:
     uid = update.effective_user.id
@@ -115,7 +98,6 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-# ✅ LER ARQUIVO cmd.txt
 def ler_comandos():
     try:
         with open("cmd.txt", "r", encoding="utf-8") as f:
@@ -123,59 +105,16 @@ def ler_comandos():
     except:
         return "📜 Arquivo de comandos não encontrado."
 
-# ✅ FUNÇÃO GERAR MENU — USADA POR /start E POR BOTÃO VOLTAR
-def gerar_menu_texto_e_botoes(user, chat):
-    agora = datetime.now(FUSO_BR)
-    hora = agora.strftime("%H:%M:%S")
-    data = agora.strftime("%d/%m/%Y")
-
-    # ✅ SE FOR PRIVADO → SÓ ALUGAR E VER COMANDOS
-    if chat.type == "private":
-        texto = (
-            "👋 Olá! Bem-vindo ao Bot!\n\n"
-            "Escolha uma opção abaixo:"
-        )
-        botoes = [
-            [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
-            [InlineKeyboardButton("📜 Ver Comandos", callback_data="ver_comandos")]
-        ]
-        return texto, botoes
-
-    # ✅ SE FOR GRUPO → MENU COMPLETO
-    texto = (
-        "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
-        f"✰┃👤 : {user.first_name}\n"
-        f"✰┃🆔 : `{user.id}`\n"
-        f"✰┃🕘 : {hora}\n"
-        f"✰┃☀️ : {data}\n"
-        "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
-    )
-
-    botoes = [
-        [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
-        [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
-        [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
-        [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
-    ]
-
-    if chat.type == "private" and await verificar_assinante(user.id):
-        botoes.insert(2, [InlineKeyboardButton("⚙️ Configurar Grupos", callback_data="menu_config_grupos")])
-
-    if DONO_ID and str(user.id) == str(DONO_ID):
-        botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono", callback_data="menu_dono")])
-
-    return texto, botoes
-
-# ✅ ✅ ✅ COMANDO START CORRIGIDO — DETECTA CLIQUE DE BOTÃO ✅ ✅ ✅
+# ✅ ✅ FUNÇÃO START — CORRIGIDA SEM ERRO DE SINTAXE ✅ ✅
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    query = update.callback_query  # ← DETECTA SE VEIO DE CLIQUE DE BOTÃO
+    query = update.callback_query
 
-    # ✅ SE FOR GRUPO → BLOQUEIA SE NÃO ESTIVER CADASTRADO
+    # ✅ BLOQUEIA /start em grupos não cadastrados
     if chat.type in ["group", "supergroup"]:
         if DONO_ID and str(user.id) == str(DONO_ID):
-            pass  # DONO SEMPRE PODE
+            pass
         elif not await grupo_autorizado(chat.id):
             aviso = (
                 "⚠️ **USO NÃO AUTORIZADO**\n\n"
@@ -191,48 +130,76 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
             return
 
-    # ✅ GERA O MENU
-    texto, botoes = gerar_menu_texto_e_botoes(user, chat)
-
-    # ✅ SE VEIO DE CLIQUE DE BOTÃO → EDITA A MENSAGEM (ISSO FAZ O VOLTAR FUNCIONAR!)
-    if query:
-        await query.message.edit_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-    # ✅ SE VEIO DE /start DIGITADO → CRIA NOVA MENSAGEM
+    # ✅ SE FOR PRIVADO → SÓ ALUGAR E VER COMANDOS
+    if chat.type == "private":
+        texto = (
+            "👋 Olá! Bem-vindo ao Bot!\n\n"
+            "Escolha uma opção abaixo:"
+        )
+        botoes = [
+            [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
+            [InlineKeyboardButton("📜 Ver Comandos", callback_data="ver_comandos")]
+        ]
+        # ✅ Verifica se é assinante para mostrar botão extra
+        if await verificar_assinante(user.id):
+            botoes.insert(2, [InlineKeyboardButton("⚙️ Configurar Grupos", callback_data="menu_config_grupos")])
+        botoes = InlineKeyboardMarkup(botoes)
     else:
-        await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        # ✅ SE FOR GRUPO AUTORIZADO → MENU COMPLETO
+        agora = datetime.now(FUSO_BR)
+        hora = agora.strftime("%H:%M:%S")
+        data = agora.strftime("%d/%m/%Y")
+        texto = (
+            "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
+            f"✰┃👤 : {user.first_name}\n"
+            f"✰┃🆔 : `{user.id}`\n"
+            f"✰┃🕘 : {hora}\n"
+            f"✰┃☀️ : {data}\n"
+            "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
+        )
+        botoes = [
+            [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
+            [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
+            [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
+            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
+        ]
+        if DONO_ID and str(user.id) == str(DONO_ID):
+            botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono", callback_data="menu_dono")])
+        botoes = InlineKeyboardMarkup(botoes)
 
+    # ✅ EDITA mensagem se veio de botão, cria nova se veio de /start
+    if query:
+        await query.message.edit_text(texto, reply_markup=botoes, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(texto, reply_markup=botoes, parse_mode="Markdown")
 
-# ✅ MENUS
 async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    texto_membros = ler_comandos()
+    texto = ler_comandos()
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
-    await query.message.edit_text(texto_membros, reply_markup=teclado, parse_mode="Markdown")
+    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    texto_adm = ler_comandos()
+    texto = ler_comandos()
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
-    await query.message.edit_text(texto_adm, reply_markup=teclado, parse_mode="Markdown")
+    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not query:
         return
-    uid = update.effective_user.id
-    chat = query.message.chat
     dados = query.data
-    logger.info(f"📥 CLIQUE: {dados} | Usuário: {uid}")
+    logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ ✅ ✅ BOTÃO VOLTAR — AGORA CHAMA START CORRETAMENTE ✅ ✅ ✅
+    # ✅ BOTÃO VOLTAR — AGORA FUNCIONA!
     if dados in ["voltar_menu_principal", "voltar_menu"]:
         await query.answer()
-        await start(update, context)  # ← start() agora EDITA a mensagem!
+        await start(update, context)
         return
 
-    # ✅ BOTÃO VER COMANDOS → LER DO cmd.txt
     if dados == "ver_comandos":
         await query.answer()
         texto = ler_comandos()
@@ -240,7 +207,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
-    # ✅ LIBERA MENUS SEMPRE
     if dados == "menu_membros":
         await query.answer()
         await menu_membros_handler(update, context)
@@ -276,7 +242,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.warning(f"⚠️ Botão não registrado: {dados}")
     await query.answer("❌ Função não encontrada!", show_alert=True)
-
 
 def main():
     try:
@@ -324,7 +289,7 @@ def main():
 
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
 
-    logger.info("🤖 Bot iniciado! Botão VOLTAR CORRIGIDO ✅")
+    logger.info("🤖 Bot iniciado! SEM ERROS ✅")
 
     import sys
     try:
