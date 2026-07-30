@@ -473,7 +473,7 @@ def main():
 
     logger.info("🤖 Bot iniciado! Botões prontos.")
     # ✅ LINHA CORRIGIDA — close_loop=False
-    app.run_polling(drop_pending_updates=True, close_loop=False)
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
