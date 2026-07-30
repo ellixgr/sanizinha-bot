@@ -2,6 +2,7 @@ import os
 import logging
 import threading
 import time
+import asyncio  # ✅ ADICIONADO
 from datetime import datetime, timezone, timedelta
 from flask import Flask
 from pymongo import MongoClient
@@ -413,6 +414,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    # ✅ CRIA O EVENT LOOP ANTES DE TUDO
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    # ✅ INICIA SERVIDOR WEB EM THREAD SEPARADA
     threading.Thread(target=run_web, daemon=True).start()
 
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -463,13 +472,14 @@ def main():
 
     logger.info("🤖 Bot iniciado! Botões prontos.")
 
+    # ✅ INICIA O POLLING COM O LOOP CORRETO
     import sys
     try:
-        application.run_polling(drop_pending_updates=True)
+        loop.run_until_complete(application.run_polling(drop_pending_updates=True))
     except Exception as e:
         logger.warning(f"⚠️ Com parâmetro falhou: {e}")
         try:
-            application.run_polling()
+            loop.run_until_complete(application.run_polling())
         except Exception as e2:
             logger.error(f"❌ Falha total: {e2}")
             sys.exit(1)
