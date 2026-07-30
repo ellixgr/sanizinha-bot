@@ -128,34 +128,32 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pid = res.get("id")
             qr = res.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code", "")
             
-            # ✅ ESCAPA CARACTERES QUE QUEBRAM O MARKDOWN
-            qr_seguro = qr.replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace('`', '\\`')
-            
             db = get_db()
             db["alugueis_pendentes"].update_one({"payment_id": pid}, {
                 "$set": {"user_id": user_id, "meses": meses, "valor": valor, "status": "pendente", "qr_code": qr}
             }, upsert=True)
 
+            # ✅ SEM MARKDOWN NO CÓDIGO PIX → NÃO DÁ MAIS ERRO DE PARSE!
             msg_completa = (
-                f"⚡ **PIX GERADO!**\n💸 Valor: R$ {valor:.2f}\n\n"
-                f"📋 **Código Pix Copia e Cola:**\n`{qr_seguro}`"
+                f"⚡ PIX GERADO!\n💸 Valor: R$ {valor:.2f}\n\n"
+                f"📋 Código Pix Copia e Cola:\n\n{qr}\n\n"
+                f"👉 Toque e segure o código acima para copiar!"
             )
             
             teclado_final = [
-                [InlineKeyboardButton("📋 Copiar Código Pix", copy_text=dict(text=qr))],
                 [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{pid}")],
                 [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_painel")]
             ]
             
+            # ✅ SEM parse_mode="Markdown" → Telegram não tenta interpretar caracteres especiais!
             await query.message.edit_text(
                 msg_completa,
-                reply_markup=InlineKeyboardMarkup(teclado_final),
-                parse_mode="Markdown"
+                reply_markup=InlineKeyboardMarkup(teclado_final)
             )
         else:
-            await query.message.edit_text(f"❌ Erro: {res.get('message', 'Erro ao gerar pagamento')}", parse_mode="Markdown")
+            await query.message.edit_text(f"❌ Erro: {res.get('message', 'Erro ao gerar pagamento')}")
     except Exception as e:
-        await query.message.edit_text(f"❌ Erro de conexão: {str(e)}", parse_mode="Markdown")
+        await query.message.edit_text(f"❌ Erro de conexão: {str(e)}")
 
 
 async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,11 +179,11 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
                 db["alugueis_pendentes"].update_one({"payment_id": int(pid)}, {"$set": {"status": "pago"}})
             link = f"https://t.me/{context.bot.username}?startgroup=true"
             await query.message.edit_text(
-                "✅ **PAGAMENTO CONFIRMADO!** 🎉\n\nAdicione o bot ao seu grupo:",
+                "✅ PAGAMENTO CONFIRMADO! 🎉\n\nAdicione o bot ao seu grupo:",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
                     [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_painel")]
-                ]), parse_mode="Markdown"
+                ])
             )
         elif status in ["pending", "in_process"]:
             await query.answer("⏳ Aguardando pagamento...", show_alert=True)
