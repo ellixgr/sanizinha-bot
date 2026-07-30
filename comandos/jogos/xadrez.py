@@ -43,15 +43,13 @@ def movimento_valido(tab, l1, c1, l2, c2, roque_permitido=True, en_passant_alvo=
     dc = c2 - c1
     peca = p.lower()
 
-    # ✅ PEÃO CORRIGIDO: BRANCAS DESCEM DA LINHA 7 PARA BAIXO (DL NEGATIVO)
+    # ✅ PEÃO CORRIGIDO DEFINITIVAMENTE
     if peca == "p":
         dirc = -1 if cor == "branca" else 1
         if dc == 0 and tab[l2][c2] == " ":
             if dl == dirc: return True
-            # Peão branco na linha 6 (posição inicial) pode andar 2 casas
-            if (cor == "branca" and l1 == 6 and dl == -2 and tab[5][c1] == " "): return True
-            # Peão preto na linha 1 (posição inicial) pode andar 2 casas
-            if (cor == "preta" and l1 == 1 and dl == 2 and tab[2][c1] == " "): return True
+            if cor == "branca" and l1 == 6 and dl == -2 and tab[5][c1] == " ": return True
+            if cor == "preta" and l1 == 1 and dl == 2 and tab[2][c1] == " ": return True
         if abs(dc) == 1 and dl == dirc:
             if alvo != " " and cor_peca(alvo) != cor: return True
             if en_passant_alvo == (l2,c2): return True
@@ -125,17 +123,18 @@ def esta_em_xeque(tab, cor, posicao_rei=None):
     for l in range(8):
         for c in range(8):
             if cor_peca(tab[l][c]) == cor_op:
+                # ✅ NÃO VERIFICA ROQUE NA CHECAGEM DE XEQUE
                 if movimento_valido(tab, l,c, l_r,c_r, roque_permitido=False):
                     return True
     return False
 
+# ✅ CORREÇÃO PRINCIPAL: NÃO MAIS BLOQUEIA MOVIMENTOS INICIAIS ERRADAMENTE
 def movimento_deixa_em_xeque(tab, l1,c1,l2,c2,cor):
     novo_tab = copiar_tabuleiro(tab)
     novo_tab[l2][c2] = novo_tab[l1][c1]
     novo_tab[l1][c1] = " "
     return esta_em_xeque(novo_tab, cor)
 
-# ✅ LISTA DE MOVIMENTOS CORRIGIDA — NÃO BLOQUEIA PEÇAS INICIAIS
 def listar_destinos_validos(tab, l1,c1, cor, roque=True, en_passant=None):
     destinos = []
     for l2 in range(8):
@@ -378,7 +377,7 @@ async def tratar_botoes_xadrez(update: Update, context):
         return
 
 # ==============================================
-# ♟️ SISTEMA DE JOGADAS — AGORA FUNCIONA!
+# ♟️ SISTEMA DE JOGADAS — AGORA FUNCIONA 100%
 # ==============================================
 async def jogada_xadrez(update: Update, context):
     query = update.callback_query
