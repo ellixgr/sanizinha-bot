@@ -480,7 +480,7 @@ def main():
     import sys
     try:
         # Tenta forma simples primeiro
-        application.run_polling(drop_pending_updates=True)
+        application.run_polling()
     except Exception as e:
         logger.warning(f"⚠️ Forma simples falhou: {e}")
         try:
