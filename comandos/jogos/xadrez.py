@@ -16,6 +16,10 @@ SIMBOLOS_PECAS = {
     ".": " "
 }
 
+# ✅ FUNÇÃO AUXILIAR PARA MONTAR O TEXTO DAS CAPTURAS
+def montar_capturas(lista):
+    return " ".join(lista) if lista else ""
+
 # ✅ FUNÇÃO DE CONVERSÃO CORRETA
 def gerar_tabuleiro_botoes(tabuleiro: chess.Board, selecionado=None, destinos_validos=None):
     texto_tabuleiro = str(tabuleiro).replace(" ", "").split("\n")
@@ -89,7 +93,7 @@ async def cmd_iniciar_xadrez(update: Update, context: ContextTypes.DEFAULT_TYPE)
             }
         }, upsert=True)
         await update.message.reply_text(
-            f"♟️ **JOGO INICIADO!**\n\n𝘝𝘌𝘡 𝘋𝘖(𝘈) @{usuario.first_name}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{usuario.first_name} : ♟️\nSanizinha Bot : ♟️",
+            f"♟️ **JOGO INICIADO!**\n\n𝘝𝘌𝘡 𝘋𝘖(𝘈) @{usuario.first_name}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{usuario.first_name} : {montar_capturas([])}\nSanizinha Bot : {montar_capturas([])}",
             reply_markup=gerar_tabuleiro_botoes(tab),
             parse_mode="Markdown"
         )
@@ -160,7 +164,7 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
             }
         }, upsert=True)
         await query.message.edit_text(
-            f"♟️ **JOGO VS IA INICIADO!**\n\n𝘝𝘌𝘡 𝘋𝘖(𝘈) @{update.effective_user.first_name}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{update.effective_user.first_name} : ♟️\nSanizinha Bot : ♟️",
+            f"♟️ **JOGO VS IA INICIADO!**\n\n𝘝𝘌𝘡 𝘋𝘖(𝘈) @{update.effective_user.first_name}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{update.effective_user.first_name} : {montar_capturas([])}\nSanizinha Bot : {montar_capturas([])}",
             reply_markup=gerar_tabuleiro_botoes(tab),
             parse_mode="Markdown"
         )
@@ -189,7 +193,7 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
             }
         })
         await query.message.edit_text(
-            f"♟️ **PARTIDA INICIADA!**\n\n𝘝𝘌𝘡 𝘋𝘖(𝘈) @{jogo['desafiante_nome']}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{jogo['desafiante_nome']} : ♟️\n@{jogo['desafiado_nome']} : ♟️",
+            f"♟️ **PARTIDA INICIADA!**\n\n𝘝𝘌𝘡 𝘋𝘖(𝘈) @{jogo['desafiante_nome']}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{jogo['desafiante_nome']} : {montar_capturas([])}\n@{jogo['desafiado_nome']} : {montar_capturas([])}",
             reply_markup=gerar_tabuleiro_botoes(tab),
             parse_mode="Markdown"
         )
@@ -206,7 +210,7 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         tab = chess.Board(jogo["tabuleiro"])
         xadrez_db.update_one({"chat_id": chat_id}, {"$set": {"selecionado": None}})
         await query.message.edit_text(
-            f"𝘝𝘌𝘡 𝘋𝘖(𝘈) @{jogo['brancas_nome'] if tab.turn == chess.WHITE else jogo['pretas_nome']}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{jogo['brancas_nome']} : {'♟️'*(len(jogo.get('capturas_brancas',[]))+1)}\n@{jogo['pretas_nome']} : {'♟️'*(len(jogo.get('capturas_pretas',[]))+1)}",
+            f"𝘝𝘌𝘡 𝘋𝘖(𝘈) @{jogo['brancas_nome'] if tab.turn == chess.WHITE else jogo['pretas_nome']}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{jogo['brancas_nome']} : {montar_capturas(jogo.get('capturas_brancas',[]))}\n@{jogo['pretas_nome']} : {montar_capturas(jogo.get('capturas_pretas',[]))}",
             reply_markup=gerar_tabuleiro_botoes(tab),
             parse_mode="Markdown"
         )
@@ -271,17 +275,18 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.answer("❌ Movimento inválido!", show_alert=True)
             return
 
-        # Registra captura
+        # Registra captura — SÓ ADICIONA SE REALMENTE CAPTURAR
         peca_capturada = tab.piece_at(destino)
         tab.push(movimento)
 
         if peca_capturada:
+            simbolo = SIMBOLOS_PECAS.get(peca_capturada.symbol(), "♟️")
             if tab.turn == chess.BLACK:
-                capturas = jogo.get("capturas_brancas", []) + [SIMBOLOS_PECAS.get(peca_capturada.symbol(), "♟️")]
-                xadrez_db.update_one({"chat_id": chat_id}, {"$set": {"capturas_brancas": capturas}})
+                novas = jogo.get("capturas_brancas", []) + [simbolo]
+                xadrez_db.update_one({"chat_id": chat_id}, {"$set": {"capturas_brancas": novas}})
             else:
-                capturas = jogo.get("capturas_pretas", []) + [SIMBOLOS_PECAS.get(peca_capturada.symbol(), "♟️")]
-                xadrez_db.update_one({"chat_id": chat_id}, {"$set": {"capturas_pretas": capturas}})
+                novas = jogo.get("capturas_pretas", []) + [simbolo]
+                xadrez_db.update_one({"chat_id": chat_id}, {"$set": {"capturas_pretas": novas}})
 
         # Fim de jogo
         if tab.is_checkmate():
@@ -312,7 +317,7 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 # Atualiza com a sua vez
                 aviso = "⚠️ **XEQUE!** " if tab.is_check() else ""
                 await query.message.edit_text(
-                    f"{aviso}𝘝𝘌𝘡 𝘋𝘖(𝘈) @{jogo['brancas_nome']}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{jogo['brancas_nome']} : {'♟️'*(len(jogo.get('capturas_brancas',[]))+1)}\n@{jogo['pretas_nome']} : {'♟️'*(len(jogo.get('capturas_pretas',[]))+1)}",
+                    f"{aviso}𝘝𝘌𝘡 𝘋𝘖(𝘈) @{jogo['brancas_nome']}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{jogo['brancas_nome']} : {montar_capturas(jogo.get('capturas_brancas',[]))}\n@{jogo['pretas_nome']} : {montar_capturas(jogo.get('capturas_pretas',[]))}",
                     reply_markup=gerar_tabuleiro_botoes(tab),
                     parse_mode="Markdown"
                 )
@@ -325,7 +330,7 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         aviso = "⚠️ **XEQUE!** " if tab.is_check() else ""
 
         await query.message.edit_text(
-            f"{aviso}𝘝𝘌𝘡 𝘋𝘖(𝘈) @{proximo_nome}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{jogo['brancas_nome']} : {'♟️'*(len(jogo.get('capturas_brancas',[]))+1)}\n@{jogo['pretas_nome']} : {'♟️'*(len(jogo.get('capturas_pretas',[]))+1)}",
+            f"{aviso}𝘝𝘌𝘡 𝘋𝘖(𝘈) @{proximo_nome}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{jogo['brancas_nome']} : {montar_capturas(jogo.get('capturas_brancas',[]))}\n@{jogo['pretas_nome']} : {montar_capturas(jogo.get('capturas_pretas',[]))}",
             reply_markup=gerar_tabuleiro_botoes(tab),
             parse_mode="Markdown"
         )
