@@ -35,11 +35,13 @@ async def checar_deploy_pendente_ao_iniciar(application):
         if os.path.exists(ARQUIVO_ESTADO_DEPLOY):
             os.remove(ARQUIVO_ESTADO_DEPLOY)
 
+
 async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     dono_id_env = os.environ.get("DONO_ID")
     
-    if not dono_id_env or user_id != int(dono_id_env):
+    # ✅ CORRIGIDO: Comparação segura com string
+    if not dono_id_env or str(user_id) != str(dono_id_env):
         if update.callback_query:
             await update.callback_query.answer("⚠️ Apenas o dono do bot pode executar esta ação!", show_alert=True)
         else:
@@ -102,12 +104,13 @@ async def executar_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TY
         texto_ex = f"❌ Erro interno ao executar o comando: {e}"
         await msg.edit_text(texto_ex)
 
+
 async def cmd_clear_deploy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await executar_clear_deploy(update, context)
+
 
 def registrar_deploy(app):
     app.add_handler(CommandHandler("cleardeploy", cmd_clear_deploy))
     
-    # Maneira segura e nativa do PTB v20+ de rodar funções assíncronas logo na inicialização sem erro de event loop
     if app.job_queue:
         app.job_queue.run_once(lambda ctx: asyncio.create_task(checar_deploy_pendente_ao_iniciar(app)), when=1)
