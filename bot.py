@@ -6,7 +6,10 @@ from datetime import datetime, timezone, timedelta
 from flask import Flask
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, TypeHandler, ContextTypes, filters, MessageHandler, ApplicationHandlerStop
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
+    TypeHandler, ContextTypes, filters, MessageHandler, ApplicationHandlerStop
+)
 
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 from comandos.menus import menu_membros_handler, menu_adm_handler
@@ -52,7 +55,6 @@ async def grupo_autorizado(chat_id: int) -> bool:
         return False
 
 async def verificar_assinante(usuario_id: int) -> bool:
-    """Verifica se o usuário é assinante ativo de algum grupo"""
     try:
         db = get_db()
         agora = time.time()
@@ -63,7 +65,6 @@ async def verificar_assinante(usuario_id: int) -> bool:
         return False
 
 async def listar_grupos_usuario(usuario_id: int):
-    """Retorna lista de grupos do usuário onde o bot está autorizado"""
     try:
         db = get_db()
         agora = time.time()
@@ -184,21 +185,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
     
-    # ✅ Mostra "Configurar Grupos" apenas no privado e se for assinante
     if chat.type == "private" and await verificar_assinante(user.id):
         botoes.insert(2, [InlineKeyboardButton("⚙️ Configurar Grupos", callback_data="menu_config_grupos")])
     
     if DONO_ID and str(user.id) == str(DONO_ID):
-        botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
+        botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono", callback_data="menu_dono")])
     
     await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 async def exibir_painel_config_grupo_privado(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id_grupo: int, nome_grupo: str):
-    """Exibe painel de configurações de um grupo pelo privado"""
     query = update.callback_query
     uid = update.effective_user.id
     
-    # Verifica se é dono/adm do grupo
     if not await verificar_se_e_adm(update, context, chat_id_grupo):
         await query.answer("⚠️ Você não é administrador deste grupo!", show_alert=True)
         return
@@ -214,17 +212,29 @@ async def exibir_painel_config_grupo_privado(update: Update, context: ContextTyp
     
     await query.message.edit_text(texto, reply_markup=botoes, parse_mode="Markdown")
 
+# ✅ FUNÇÃO PRINCIPAL DOS BOTÕES — CORRIGIDA
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    if not query:
+        return
+    
     uid = update.effective_user.id
     chat = query.message.chat
+    dados = query.data
+    logger.info(f"📥 BOTÃO CLICADO: {dados} | Usuário: {uid}")
 
-    if query.data.startswith("addgrupo_"):
-        await processar_callback_addgrupo(update, context, get_db, FUSO_BR)
+    # ═══════════════════════════════════════
+    # 🔙 BOTÕES DE VOLTAR — SEMPRE PRIMEIRO
+    # ═══════════════════════════════════════
+    if dados in ["voltar_menu_principal", "voltar_menu", "ver_comandos", "voltar_principal_grupo", "menu_voltar_inicio"]:
+        await query.answer()
+        await start(update, context)
         return
 
-    # ✅ MENU CONFIGURAR GRUPOS (listar grupos do assinante)
-    if query.data == "menu_config_grupos":
+    # ═══════════════════════════════════════
+    # 📋 MENU CONFIGURAR GRUPOS
+    # ═══════════════════════════════════════
+    if dados == "menu_config_grupos":
         if chat.type != "private":
             await query.answer("Acesse pelo privado do bot!", show_alert=True)
             return
@@ -245,18 +255,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ✅ ABRIR CONFIGURAÇÃO DE UM GRUPO ESPECÍFICO
-    if query.data.startswith("config_grupo_"):
-        chat_id_grupo = int(query.data.replace("config_grupo_", ""))
+    # ═══════════════════════════════════════
+    # ⚙️ ABRIR CONFIGURAÇÃO DE UM GRUPO
+    # ═══════════════════════════════════════
+    if dados.startswith("config_grupo_"):
+        chat_id_grupo = int(dados.replace("config_grupo_", ""))
         db = get_db()
         grupo = db["grupos_autorizados"].find_one({"chat_id": chat_id_grupo})
         nome_grupo = grupo.get("chat_title", f"Grupo {chat_id_grupo}") if grupo else f"Grupo {chat_id_grupo}"
         await exibir_painel_config_grupo_privado(update, context, chat_id_grupo, nome_grupo)
         return
 
-    # ✅ PROTEÇÕES DE UM GRUPO PELO PRIVADO
-    if query.data.startswith("prot_grupo_"):
-        chat_id_grupo = int(query.data.replace("prot_grupo_", ""))
+    # ═══════════════════════════════════════
+    # 🛡️ PROTEÇÕES PELO PRIVADO
+    # ═══════════════════════════════════════
+    if dados.startswith("prot_grupo_"):
+        chat_id_grupo = int(dados.replace("prot_grupo_", ""))
         if not await verificar_se_e_adm(update, context, chat_id_grupo):
             await query.answer("⚠️ Você não é administrador!", show_alert=True)
             return
@@ -264,9 +278,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await enviar_painel_protecoes_privado(update, context, chat_id_grupo)
         return
 
-    # ✅ BOAS-VINDAS DE UM GRUPO PELO PRIVADO
-    if query.data.startswith("bemvindo_grupo_"):
-        chat_id_grupo = int(query.data.replace("bemvindo_grupo_", ""))
+    # ═══════════════════════════════════════
+    # 👋 BOAS-VINDAS PELO PRIVADO
+    # ═══════════════════════════════════════
+    if dados.startswith("bemvindo_grupo_"):
+        chat_id_grupo = int(dados.replace("bemvindo_grupo_", ""))
         if not await verificar_se_e_adm(update, context, chat_id_grupo):
             await query.answer("⚠️ Você não é administrador!", show_alert=True)
             return
@@ -274,9 +290,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await enviar_painel_principal_bv(context, chat_id_grupo, query=query)
         return
 
-    # ✅ PUNIÇÃO DE UM GRUPO PELO PRIVADO
-    if query.data.startswith("punicao_grupo_"):
-        chat_id_grupo = int(query.data.replace("punicao_grupo_", ""))
+    # ═══════════════════════════════════════
+    # ⚖️ PUNIÇÃO PELO PRIVADO
+    # ═══════════════════════════════════════
+    if dados.startswith("punicao_grupo_"):
+        chat_id_grupo = int(dados.replace("punicao_grupo_", ""))
         if not await verificar_se_e_adm(update, context, chat_id_grupo):
             await query.answer("⚠️ Você não é administrador!", show_alert=True)
             return
@@ -284,16 +302,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await enviar_painel_punicao_privado(update, context, chat_id_grupo)
         return
 
+    # ═══════════════════════════════════════
+    # ➕ ADDGRUPO
+    # ═══════════════════════════════════════
+    if dados.startswith("addgrupo_"):
+        await processar_callback_addgrupo(update, context, get_db, FUSO_BR)
+        return
+
+    # ═══════════════════════════════════════
+    # ✅ VERIFICAÇÃO DE ACESSO
+    # ═══════════════════════════════════════
     if not (DONO_ID and str(uid) == str(DONO_ID)):
         if chat.type != "private" and not await grupo_autorizado(chat.id):
             await query.answer("❌ Grupo não autorizado!", show_alert=True)
             return
 
-    if query.data == "menu_membros":
+    # ═══════════════════════════════════════
+    # 📋 MENUS PRINCIPAIS
+    # ═══════════════════════════════════════
+    if dados == "menu_membros":
+        await query.answer()
         await menu_membros_handler(update, context)
-    elif query.data == "menu_adm":
+        return
+    elif dados == "menu_adm":
+        await query.answer()
         await menu_adm_handler(update, context)
-    elif query.data == "menu_dono":
+        return
+    elif dados == "menu_dono":
         if str(uid) != str(DONO_ID):
             await query.answer("Negado!", show_alert=True)
             return
@@ -303,40 +338,48 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Executar Deploy", callback_data="executar_deploy")],[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]]),
             parse_mode="Markdown"
         )
-    elif query.data == "executar_deploy":
+        return
+    elif dados == "executar_deploy":
         if str(uid) != str(DONO_ID):
             await query.answer("Negado!", show_alert=True)
             return
         from comandos.deploy import executar_clear_deploy
         await executar_clear_deploy(update, context)
-    elif query.data == "config_bemvindo":
+        return
+    elif dados == "config_bemvindo":
         if not await verificar_se_e_adm(update, context):
             await query.answer("Só ADM!", show_alert=True)
             return
         from comandos.bemvindo import enviar_painel_principal_bv
         await enviar_painel_principal_bv(context, chat.id, query=query)
-    elif query.data == "menu_protecoes":
+        return
+    elif dados == "menu_protecoes":
         if not await verificar_se_e_adm(update, context):
             await query.answer("Só ADM!", show_alert=True)
             return
         from protecao.status import enviar_painel_protecoes
         await enviar_painel_protecoes(update, context)
-    elif query.data == "menu_config_punicao":
+        return
+    elif dados == "menu_config_punicao":
         if not await verificar_se_e_adm(update, context):
             await query.answer("Só ADM!", show_alert=True)
             return
         from protecao.status import enviar_painel_punicao
         await enviar_painel_punicao(update, context)
-    elif query.data.startswith(("prot_","pun_","menu_fechar")):
+        return
+    elif dados.startswith(("prot_","pun_","menu_fechar")):
         if not await verificar_se_e_adm(update, context):
             await query.answer("Negado!", show_alert=True)
             return
         from protecao.status import processar_callback_protecao
         await processar_callback_protecao(update, context)
-    elif query.data == "botao_ping":
+        return
+    elif dados == "botao_ping":
+        await query.answer()
         from comandos.ping import ping_cmd
         await ping_cmd(update, context)
-    elif query.data == "menu_perfil_atalho":
+        return
+    elif dados == "menu_perfil_atalho":
         await query.answer()
         if chat.type == "private":
             await query.message.reply_text("⚠️ Use este comando dentro de um grupo!", parse_mode="Markdown")
@@ -361,31 +404,49 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_membros")]]),
             parse_mode="Markdown"
         )
-    elif query.data == "menu_id_atalho":
+        return
+    elif dados == "menu_id_atalho":
+        await query.answer()
         txt=f"🆔 Seu ID: `{uid}`"
         if chat.type!="private": txt+=f"\n🏢 ID Grupo: `{chat.id}`"
         await query.message.edit_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_membros")]]), parse_mode="Markdown")
-    elif query.data == "menu_jogos_atalho":
+        return
+    elif dados == "menu_jogos_atalho":
+        await query.answer()
         await menu_jogos_handler(update, context)
-    elif query.data == "jogo_xadrez":
+        return
+    elif dados == "jogo_xadrez":
         await query.answer("Abrindo menu do Xadrez...")
         from comandos.jogos.xadrez import menu_xadrez_handler
         await menu_xadrez_handler(update, context)
-    elif query.data in ["jogo_velha","jogo_memoria","jogo_dama"]:
+        return
+    elif dados in ["jogo_velha","jogo_memoria","jogo_dama"]:
+        await query.answer()
         await processar_callback_jogos(update, context)
-    # ✅ CORRIGIDO: Botões de voltar — TODOS voltam ao menu principal (função start)
-    elif query.data in ["voltar_menu_principal", "voltar_menu","ver_comandos","voltar_principal_grupo","menu_voltar_inicio"]:
-        await start(update, context)
+        return
+    
+    # ⚠️ Se chegou aqui, botão não reconhecido
+    logger.warning(f"⚠️ Botão NÃO RECONHECIDO: {dados}")
+    await query.answer("❌ Função não encontrada!", show_alert=True)
+
 
 def main():
     threading.Thread(target=run_web, daemon=True).start()
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
 
+    # ═══════════════════════════════════════
+    # 🔷 HANDLERS EM ORDEM CORRETA
+    # ═══════════════════════════════════════
+    
+    # Interceptadores (grupo negativo = executam primeiro)
     app.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
     app.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
     app.add_handler(TypeHandler(Update, interceptador_estatisticas), group=3)
 
+    # ═══════════════════════════════════════
+    # ✅ COMANDOS DE TEXTO
+    # ═══════════════════════════════════════
     from comandos.ping import registrar_ping
     from comandos.id import registrar_id
     from comandos.perfil import registrar_perfil
@@ -421,10 +482,15 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.ChatType.PRIVATE, capturar_membros_handler), group=2)
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER & ~filters.ChatType.PRIVATE, remover_membro_saiu_handler), group=3)
 
+    # ═══════════════════════════════════════
+    # ✅ COMANDOS PRINCIPAIS E BOTÕES
+    # ═══════════════════════════════════════
     app.add_handler(CommandHandler("start", start))
+    
+    # ✅ BOTÃO HANDLER REGISTRADO ANTES DE OUTROS CALLBACKS
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    logger.info("🤖 Dono sempre liberado em qualquer lugar!")
+    logger.info("🤖 Bot iniciado! Botões funcionando.")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
