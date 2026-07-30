@@ -1,10 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from comandos.jogos.menujogos import menu_jogos_handler
 
-# ✅ Importe AQUI a função que mostra o MENU PRINCIPAL (ajuste o nome se for diferente)
-# Exemplo: from comandos.seu_arquivo import menu_principal_handler
-# Vou deixar comentado, você confere o nome correto no seu bot.py
-
 async def menu_membros_handler(update, context):
     query = update.callback_query
     await query.answer()
