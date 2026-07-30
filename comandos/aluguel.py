@@ -45,12 +45,16 @@ async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
+
 async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
     dados = query.data
+
+    # ✅ PEGA OU INICIA OS VALORES
     meses = context.user_data.get(f"aluguel_meses_{user_id}", 1)
 
+    # ✅ AUMENTA/DIMINUI
     if dados == "aluguel_mais":
         meses = min(12, meses + 1)
     elif dados == "aluguel_menos":
@@ -59,6 +63,7 @@ async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_
         await query.answer("Use os botões ➕ e ➖", show_alert=False)
         return
 
+    # ✅ ATUALIZA VALORES
     valor = meses * 10.00
     context.user_data[f"aluguel_meses_{user_id}"] = meses
     context.user_data[f"aluguel_valor_{user_id}"] = valor
@@ -73,6 +78,7 @@ async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_
     ])
     await query.answer()
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+
 
 async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -132,6 +138,7 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await query.message.edit_text(f"❌ Erro de conexão: {str(e)}", parse_mode="Markdown")
 
+
 async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
@@ -168,6 +175,7 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
     except Exception as e:
         await query.answer(f"Erro: {str(e)}", show_alert=True)
 
+
 async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -187,6 +195,7 @@ async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_
             await chat.send_message(f"Olá! Vou ficar por {restante} aqui. O ADM {mention} pagou! 😼")
         except Exception:
             pass
+
 
 def registrar_aluguel(app):
     app.add_handler(CallbackQueryHandler(painel_aluguel, pattern="^menu_aluguel$"))
