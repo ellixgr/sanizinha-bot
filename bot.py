@@ -473,10 +473,22 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
 
+
     logger.info("🤖 Bot iniciado! Botões prontos.")
     
-    # ✅ LINHA FINAL — SEM NENHUM PARÂMETRO EXTRA
-    application.run_polling(drop_pending_updates=True)
+    # ✅ VERSÃO QUE FUNCIONA EM QUALQUER VERSÃO
+    import sys
+    try:
+        # Tenta forma simples primeiro
+        application.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        logger.warning(f"⚠️ Forma simples falhou: {e}")
+        try:
+            # Tenta sem parâmetro nenhum
+            application.run_polling()
+        except Exception as e2:
+            logger.error(f"❌ Falha total: {e2}")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
