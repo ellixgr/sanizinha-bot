@@ -237,7 +237,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for g in grupos:
             titulo = g.get("chat_title", f"Grupo {g['chat_id']}")
             botoes_grupos.append([InlineKeyboardButton(f"📌 {titulo}", callback_data=f"config_grupo_{g['chat_id']}")])
-        botoes_grupos.append([InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")])
+        botoes_grupos.append([InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")])
         await query.message.edit_text(
             "⚙️ **SEUS GRUPOS REGISTRADOS**\n\nEscolha um grupo para configurar:",
             reply_markup=InlineKeyboardMarkup(botoes_grupos),
@@ -300,7 +300,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         await query.message.edit_text(
             "🛠️ **Painel do Dono**",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Executar Deploy", callback_data="executar_deploy")],[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu")]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Executar Deploy", callback_data="executar_deploy")],[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]]),
             parse_mode="Markdown"
         )
     elif query.data == "executar_deploy":
@@ -373,8 +373,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await menu_xadrez_handler(update, context)
     elif query.data in ["jogo_velha","jogo_memoria","jogo_dama"]:
         await processar_callback_jogos(update, context)
-    # ✅ CORRIGIDO: Botões de voltar dos menus
-    elif query.data in ["voltar_menu","ver_comandos","voltar_principal_grupo","menu_voltar_inicio"]:
+    # ✅ CORRIGIDO: Botões de voltar — TODOS voltam ao menu principal (função start)
+    elif query.data in ["voltar_menu_principal", "voltar_menu","ver_comandos","voltar_principal_grupo","menu_voltar_inicio"]:
         await start(update, context)
 
 def main():
