@@ -415,7 +415,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     threading.Thread(target=run_web, daemon=True).start()
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).concurrent_updates(True).build()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     # 🔷 INTERCEPTADORES (executam primeiro)
     app.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
