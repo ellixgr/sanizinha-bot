@@ -2,6 +2,7 @@ import os
 import logging
 import threading
 import time
+import asyncio
 from datetime import datetime, timezone, timedelta
 from flask import Flask
 from pymongo import MongoClient
@@ -39,6 +40,7 @@ FUSO_BR = timezone(timedelta(hours=-3))
 app_web = Flask(__name__)
 @app_web.route('/')
 def home(): return "SanizinhaBot online!"
+
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app_web.run(host="0.0.0.0", port=port)
@@ -134,9 +136,9 @@ async def interceptador_grupos_nao_autorizados(update: Update, context: ContextT
     chat = update.effective_chat
     user = update.effective_user
     if not chat or chat.type == "private":
-        return  # ✅ DEIXA PRIVADO PASSAR SEM RESTRIÇÃO
+        return
     if DONO_ID and str(user.id) == str(DONO_ID):
-        return  # ✅ DEIXA O DONO PASSAR EM QUALQUER GRUPO
+        return
     if not await grupo_autorizado(chat.id):
         raise ApplicationHandlerStop
 
@@ -411,6 +413,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    # ✅ INICIA O LOOP DE EVENTOS ANTES DE TUDO
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    # ✅ INICIA SERVIDOR WEB EM THREAD SEPARADA
     threading.Thread(target=run_web, daemon=True).start()
 
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -455,7 +465,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
 
-    # ✅ DEPOIS DE TUDO: REGISTRA OS INTERCEPTADORES (PROTEÇÕES)
+    # ✅ DEPOIS DE TUDO: REGISTRA OS INTERCEPTADORES
     application.add_handler(TypeHandler(Update, interceptador_grupos_nao_autorizados), group=-3)
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo), group=-2)
     application.add_handler(MessageHandler((filters.ALL & ~filters.ChatType.PRIVATE), interceptador_geral_protecoes), group=-1)
@@ -463,15 +473,16 @@ def main():
 
     logger.info("🤖 Bot iniciado! Botões prontos.")
 
-    import sys
+    # ✅ INICIA O POLLING COM O LOOP CORRETO
     try:
-        application.run_polling(drop_pending_updates=True)
+        loop.run_until_complete(application.run_polling(drop_pending_updates=True))
     except Exception as e:
         logger.warning(f"⚠️ Com parâmetro falhou: {e}")
         try:
-            application.run_polling()
+            loop.run_until_complete(application.run_polling())
         except Exception as e2:
             logger.error(f"❌ Falha total: {e2}")
+            import sys
             sys.exit(1)
 
 if __name__ == "__main__":
