@@ -1,9 +1,9 @@
 python-telegram-bot==20.7
+aiohttp==3.9.4
 python-chess==1.999
 yt-dlp
 Flask
 pymongo
 psutil
 requests
-aiohttp==3.9.4
 Pillow
