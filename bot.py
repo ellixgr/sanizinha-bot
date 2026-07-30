@@ -51,6 +51,32 @@ async def grupo_autorizado(chat_id: int) -> bool:
         logger.error(f"Erro verifica grupo: {e}")
         return False
 
+async def verificar_assinante(usuario_id: int) -> bool:
+    """Verifica se o usuário é assinante ativo de algum grupo"""
+    try:
+        db = get_db()
+        agora = time.time()
+        grupo = db["grupos_autorizados"].find_one({"registrado_por": usuario_id, "ativo": True, "expira_em": {"$gt": agora}})
+        return bool(grupo)
+    except Exception as e:
+        logger.error(f"Erro verifica assinante: {e}")
+        return False
+
+async def listar_grupos_usuario(usuario_id: int):
+    """Retorna lista de grupos do usuário onde o bot está autorizado"""
+    try:
+        db = get_db()
+        agora = time.time()
+        grupos = list(db["grupos_autorizados"].find({
+            "registrado_por": usuario_id,
+            "ativo": True,
+            "expira_em": {"$gt": agora}
+        }))
+        return grupos
+    except Exception as e:
+        logger.error(f"Erro lista grupos: {e}")
+        return []
+
 async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -67,12 +93,13 @@ async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAU
     db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
     await update.message.reply_text(f"✅ Grupo registrado com sucesso!", parse_mode="Markdown")
 
-async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id_verificar=None) -> bool:
     uid = update.effective_user.id
     chat = update.effective_chat
     if DONO_ID and str(uid) == str(DONO_ID): return True
-    if chat.type in ["group","supergroup"]:
-        try: return (await chat.get_member(uid)).status in ["administrator","creator"]
+    chat_alvo_id = chat_id_verificar if chat_id_verificar else chat.id
+    if chat_alvo_id < 0:
+        try: return (await context.bot.get_chat_member(chat_alvo_id, uid)).status in ["administrator","creator"]
         except: pass
     return False
 
@@ -140,6 +167,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     agora = datetime.now(FUSO_BR)
     hora = agora.strftime("%H:%M:%S")
     data = agora.strftime("%d/%m/%Y")
+    
     texto = (
         "✪\\▁▁▁▁▁▁▁▁▁▁▁▁\\\n"
         f"✰┃👤 : {user.first_name}\n"
@@ -148,15 +176,43 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✰┃☀️ : {data}\n"
         "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
     )
+    
     botoes = [
         [InlineKeyboardButton("📜 Comandos & Membro", callback_data="menu_membros")],
         [InlineKeyboardButton("👑 Comandos & Adm", callback_data="menu_adm")],
         [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
         [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
     ]
+    
+    # ✅ Mostra "Configurar Grupos" apenas no privado e se for assinante
+    if chat.type == "private" and await verificar_assinante(user.id):
+        botoes.insert(2, [InlineKeyboardButton("⚙️ Configurar Grupos", callback_data="menu_config_grupos")])
+    
     if DONO_ID and str(user.id) == str(DONO_ID):
         botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono (Deploy)", callback_data="menu_dono")])
+    
     await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+
+async def exibir_painel_config_grupo_privado(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id_grupo: int, nome_grupo: str):
+    """Exibe painel de configurações de um grupo pelo privado"""
+    query = update.callback_query
+    uid = update.effective_user.id
+    
+    # Verifica se é dono/adm do grupo
+    if not await verificar_se_e_adm(update, context, chat_id_grupo):
+        await query.answer("⚠️ Você não é administrador deste grupo!", show_alert=True)
+        return
+    
+    texto = f"⚙️ **CONFIGURAÇÕES DO GRUPO**\n📌 {nome_grupo}\n🆔 `{chat_id_grupo}`"
+    
+    botoes = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🛡️ Proteções do Grupo", callback_data=f"prot_grupo_{chat_id_grupo}")],
+        [InlineKeyboardButton("👋 Mensagem de Boas-Vindas", callback_data=f"bemvindo_grupo_{chat_id_grupo}")],
+        [InlineKeyboardButton("⚖️ Configurar Punição", callback_data=f"punicao_grupo_{chat_id_grupo}")],
+        [InlineKeyboardButton("🔙 Voltar aos Meus Grupos", callback_data="menu_config_grupos")]
+    ])
+    
+    await query.message.edit_text(texto, reply_markup=botoes, parse_mode="Markdown")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -165,6 +221,67 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data.startswith("addgrupo_"):
         await processar_callback_addgrupo(update, context, get_db, FUSO_BR)
+        return
+
+    # ✅ MENU CONFIGURAR GRUPOS (listar grupos do assinante)
+    if query.data == "menu_config_grupos":
+        if chat.type != "private":
+            await query.answer("Acesse pelo privado do bot!", show_alert=True)
+            return
+        grupos = await listar_grupos_usuario(uid)
+        if not grupos:
+            await query.answer("Você não tem grupos registrados!", show_alert=True)
+            return
+        await query.answer()
+        botoes_grupos = []
+        for g in grupos:
+            titulo = g.get("chat_title", f"Grupo {g['chat_id']}")
+            botoes_grupos.append([InlineKeyboardButton(f"📌 {titulo}", callback_data=f"config_grupo_{g['chat_id']}")])
+        botoes_grupos.append([InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu")])
+        await query.message.edit_text(
+            "⚙️ **SEUS GRUPOS REGISTRADOS**\n\nEscolha um grupo para configurar:",
+            reply_markup=InlineKeyboardMarkup(botoes_grupos),
+            parse_mode="Markdown"
+        )
+        return
+
+    # ✅ ABRIR CONFIGURAÇÃO DE UM GRUPO ESPECÍFICO
+    if query.data.startswith("config_grupo_"):
+        chat_id_grupo = int(query.data.replace("config_grupo_", ""))
+        db = get_db()
+        grupo = db["grupos_autorizados"].find_one({"chat_id": chat_id_grupo})
+        nome_grupo = grupo.get("chat_title", f"Grupo {chat_id_grupo}") if grupo else f"Grupo {chat_id_grupo}"
+        await exibir_painel_config_grupo_privado(update, context, chat_id_grupo, nome_grupo)
+        return
+
+    # ✅ PROTEÇÕES DE UM GRUPO PELO PRIVADO
+    if query.data.startswith("prot_grupo_"):
+        chat_id_grupo = int(query.data.replace("prot_grupo_", ""))
+        if not await verificar_se_e_adm(update, context, chat_id_grupo):
+            await query.answer("⚠️ Você não é administrador!", show_alert=True)
+            return
+        from protecao.status import enviar_painel_protecoes_privado
+        await enviar_painel_protecoes_privado(update, context, chat_id_grupo)
+        return
+
+    # ✅ BOAS-VINDAS DE UM GRUPO PELO PRIVADO
+    if query.data.startswith("bemvindo_grupo_"):
+        chat_id_grupo = int(query.data.replace("bemvindo_grupo_", ""))
+        if not await verificar_se_e_adm(update, context, chat_id_grupo):
+            await query.answer("⚠️ Você não é administrador!", show_alert=True)
+            return
+        from comandos.bemvindo import enviar_painel_principal_bv
+        await enviar_painel_principal_bv(context, chat_id_grupo, query=query)
+        return
+
+    # ✅ PUNIÇÃO DE UM GRUPO PELO PRIVADO
+    if query.data.startswith("punicao_grupo_"):
+        chat_id_grupo = int(query.data.replace("punicao_grupo_", ""))
+        if not await verificar_se_e_adm(update, context, chat_id_grupo):
+            await query.answer("⚠️ Você não é administrador!", show_alert=True)
+            return
+        from protecao.status import enviar_painel_punicao_privado
+        await enviar_painel_punicao_privado(update, context, chat_id_grupo)
         return
 
     if not (DONO_ID and str(uid) == str(DONO_ID)):
@@ -256,7 +373,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await menu_xadrez_handler(update, context)
     elif query.data in ["jogo_velha","jogo_memoria","jogo_dama"]:
         await processar_callback_jogos(update, context)
-    elif query.data in ["voltar_menu","ver_comandos","voltar_principal_grupo"]:
+    # ✅ CORRIGIDO: Botões de voltar dos menus
+    elif query.data in ["voltar_menu","ver_comandos","voltar_principal_grupo","menu_voltar_inicio"]:
         await start(update, context)
 
 def main():
