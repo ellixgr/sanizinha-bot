@@ -9,13 +9,13 @@ from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ContextTypes, filters
+    MessageHandler, ContextTypes, filters, ChatMemberHandler, TypeHandler
 )
 
 from cmd import ler_comandos_membros, ler_comandos_adm
 from comandos.jogos.menujogos import menu_jogos_handler, processar_callback_jogos
 from protecao.antiflod import executar_antiflod
-from protecao.status import obter_punicao, obter_mencao_admins_str
+from protecao.status import obter_punicao, obter_mencao_admins_str, verificar_todas_protecoes
 from dono.addgrupo import cmd_addgrupo, processar_callback_addgrupo
 
 logging.basicConfig(
@@ -78,6 +78,28 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE,
         try: return (await context.bot.get_chat_member(chat_alvo_id, uid)).status in ["administrator","creator"]
         except: pass
     return False
+
+# ✅ INTERCEPTADOR DE PROTEÇÕES — RODA ANTES DE TUDO
+async def interceptador_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.effective_user or not update.effective_chat:
+        return
+
+    user = update.effective_user
+    chat = update.effective_chat
+    message = update.message
+
+    # ✅ DONO NÃO É BLOQUEADO
+    if DONO_ID and str(user.id) == str(DONO_ID):
+        return
+
+    # ✅ EXECUTA TODAS AS PROTEÇÕES
+    bloqueado = await verificar_todas_protecoes(
+        update, context, chat, user, message,
+        get_db, verificar_se_e_adm
+    )
+    if bloqueado:
+        from telegram.ext import ApplicationHandlerStop
+        raise ApplicationHandlerStop
 
 async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -163,8 +185,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         botoes = [
             [InlineKeyboardButton("📜 Comandos Membro", callback_data="menu_membros")],
             [InlineKeyboardButton("🛡️ Comandos ADM", callback_data="menu_adm")],
+            [InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos_atalho")],
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
-            [InlineKeyboardButton("🤖 Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
+            [InlineKeyboardButton("➕ Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
         ]
         if DONO_ID and str(user.id) == str(DONO_ID):
             botoes.insert(3, [InlineKeyboardButton("🛠️ Painel do Dono", callback_data="menu_dono")])
@@ -260,6 +283,9 @@ def main():
 
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    # ✅ INTERCEPTADOR DE PROTEÇÕES — RODA PRIMEIRO
+    application.add_handler(TypeHandler(Update, interceptador_protecoes), group=-1)
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(button_handler))
 
@@ -272,7 +298,6 @@ def main():
     from comandos.promover import registrar_promover
     from comandos.marcar import registrar_marcar, capturar_membros_handler, remover_membro_saiu_handler
     from comandos.citar import registrar_citar
-    from protecao.status import registrar_protecoes
     from comandos.play import setup_play
     from comandos.deploy import registrar_deploy
     from comandos.rank import registrar_rank
@@ -285,7 +310,7 @@ def main():
 
     setup_velha(application); setup_memoria(application); setup_dama(application); setup_xadrez(application)
     registrar_figurinha(application); registrar_promover(application); registrar_rank(application); registrar_marcar(application)
-    registrar_citar(application); registrar_protecoes(application); registrar_comandos_bv(application)
+    registrar_citar(application); registrar_comandos_bv(application)
     registrar_ping(application); registrar_id(application); registrar_perfil(application); registrar_ban(application)
     setup_play(application); registrar_mutar(application); registrar_deploy(application); registrar_aluguel(application)
 
