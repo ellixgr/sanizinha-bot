@@ -2,7 +2,7 @@ import os
 import time
 import requests
 from pymongo import MongoClient
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton
 from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 MONGO_URI = os.environ.get("MONGO_URI")
@@ -17,10 +17,14 @@ async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user_id = update.effective_user.id
 
+    # ✅ SE CLICAR NO GRUPO → MANDA IR AO PRIVADO
     if chat and chat.type != "private":
-        await query.answer("⚠️ Use no privado!", show_alert=True)
+        await query.answer("🔒 Use no privado!", show_alert=True)
         link = f"https://t.me/{context.bot.username}?start=aluguel"
-        await query.message.reply_text("🔒 Acesse no privado:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 Ir ao Privado", url=link)]]))
+        await query.message.reply_text(
+            "🔒 **Acesse o painel de aluguel no privado:**",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("💳 Ir ao Privado", url=link)]])
+        )
         return
 
     context.user_data[f"aluguel_meses_{user_id}"] = 1
@@ -28,12 +32,13 @@ async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     texto = (
         "🤖 **Sistema de Aluguel**\n\n"
-        "• Mês: R$ 10,00 | Máx: 12 meses\n"
-        "Escolha abaixo:"
+        "• 1 Mês = R$ 10,00\n"
+        "• Máximo: 12 meses\n\n"
+        "Escolha o período abaixo:"
     )
     teclado = InlineKeyboardMarkup([
         [InlineKeyboardButton("➖", callback_data="aluguel_menos"),
-         InlineKeyboardButton("📅 1 Mês - R$ 10,00", callback_data="aluguel_info_mes"),
+         InlineKeyboardButton("📅 1 Mês — R$ 10,00", callback_data="aluguel_info_mes"),
          InlineKeyboardButton("➕", callback_data="aluguel_mais")],
         [InlineKeyboardButton("⚡ Gerar Pix", callback_data="aluguel_gerar_pix")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
@@ -52,14 +57,14 @@ async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_
     elif dados == "aluguel_menos":
         meses = max(1, meses - 1)
     elif dados == "aluguel_info_mes":
-        await query.answer("Use ➕➖", show_alert=False)
+        await query.answer("Use os botões ➕ e ➖", show_alert=False)
         return
 
     valor = meses * 10.00
     context.user_data[f"aluguel_meses_{user_id}"] = meses
     context.user_data[f"aluguel_valor_{user_id}"] = valor
 
-    texto = f"🤖 **Aluguel**\n• {meses} Mês(es) — R$ {valor:.2f}"
+    texto = f"🤖 **Aluguel**\n• {meses} Mês(es) — R$ {valor:.2f}".replace('.', ',')
     teclado = InlineKeyboardMarkup([
         [InlineKeyboardButton("➖", callback_data="aluguel_menos"),
          InlineKeyboardButton(f"📅 {meses} Mês — R$ {valor:.2f}".replace('.', ','), callback_data="aluguel_info_mes"),
@@ -77,58 +82,94 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     meses = context.user_data.get(f"aluguel_meses_{user_id}", 1)
     valor = meses * 10.00
 
+    # ✅ DONO GANHA DE GRAÇA
     if str(user_id) == str(DONO_ID):
         db = get_db()
         expira = time.time() + meses * 30 * 86400
         db["licencas_aluguel"].update_one({"user_id": user_id}, {"$set": {"expira_em": expira, "meses": meses, "ativo": True}}, upsert=True)
         link = f"https://t.me/{context.bot.username}?startgroup=true"
-        await query.message.edit_text("👑 **Licença ativada!** Adicione o bot:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🤖 Adicionar", url=link)], [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]]), parse_mode="Markdown")
-        return
-
-    if not MP_ACCESS_TOKEN:
-        await query.answer("⚠️ Sem token Mercado Pago!", show_alert=True)
-        return
-
-    await query.answer("Gerando Pix...")
-    resp = requests.post(
-        "https://api.mercadopago.com/v1/payments",
-        headers={"Authorization": f"Bearer {MP_ACCESS_TOKEN}", "Content-Type": "application/json"},
-        json={"transaction_amount": valor, "description": f"Aluguel SanizinhaBot - {meses} meses", "payment_method_id": "pix", "payer": {"email": f"u{user_id}@telegram.bot", "first_name": user.first_name}},
-        timeout=10
-    )
-    res = resp.json()
-    if resp.status_code in [200, 201]:
-        pid = res.get("id")
-        qr = res.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code", "")
-        get_db()["alugueis_pendentes"].update_one({"payment_id": pid}, {"$set": {"user_id": user_id, "meses": meses, "valor": valor, "status": "pendente"}}, upsert=True)
         await query.message.edit_text(
-            f"⚡ **Pix Gerado!**\nValor: R$ {valor:.2f}\n\n`{qr}`",
+            "👑 **Licença ativada com sucesso!**\n\nAdicione o bot ao seu grupo:",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📋 Copiar", copy_text=CopyTextButton(qr))],
-                [InlineKeyboardButton("🔄 Verificar", callback_data=f"checar_pagamento_{pid}")],
+                [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
                 [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
             ]), parse_mode="Markdown"
         )
-    else:
-        await query.message.edit_text(f"❌ Erro: {res.get('message')}", parse_mode="Markdown")
+        return
+
+    if not MP_ACCESS_TOKEN:
+        await query.answer("⚠️ Token do Mercado Pago não configurado!", show_alert=True)
+        return
+
+    await query.answer("⚡ Gerando pagamento...")
+    try:
+        resp = requests.post(
+            "https://api.mercadopago.com/v1/payments",
+            headers={"Authorization": f"Bearer {MP_ACCESS_TOKEN}", "Content-Type": "application/json"},
+            json={
+                "transaction_amount": valor,
+                "description": f"Aluguel SanizinhaBot - {meses} meses",
+                "payment_method_id": "pix",
+                "payer": {"email": f"u{user_id}@telegram.bot", "first_name": user.first_name}
+            },
+            timeout=15
+        )
+        res = resp.json()
+        if resp.status_code in [200, 201]:
+            pid = res.get("id")
+            qr = res.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code", "")
+            db = get_db()
+            db["alugueis_pendentes"].update_one({"payment_id": pid}, {
+                "$set": {"user_id": user_id, "meses": meses, "valor": valor, "status": "pendente"}
+            }, upsert=True)
+            await query.message.edit_text(
+                f"⚡ **PIX GERADO!**\n💸 Valor: R$ {valor:.2f}\n\n`{qr}`",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📋 Copiar Código", copy_text=CopyTextButton(qr))],
+                    [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{pid}")],
+                    [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
+                ]), parse_mode="Markdown"
+            )
+        else:
+            await query.message.edit_text(f"❌ Erro: {res.get('message', 'Erro ao gerar pagamento')}", parse_mode="Markdown")
+    except Exception as e:
+        await query.message.edit_text(f"❌ Erro de conexão: {str(e)}", parse_mode="Markdown")
 
 async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
     pid = query.data.replace("checar_pagamento_", "")
-    resp = requests.get(f"https://api.mercadopago.com/v1/payments/{pid}", headers={"Authorization": f"Bearer {MP_ACCESS_TOKEN}"}, timeout=10)
-    res = resp.json()
-    if res.get("status") == "approved":
-        db = get_db()
-        pendente = db["alugueis_pendentes"].find_one({"payment_id": int(pid)})
-        if pendente and pendente.get("status") != "pago":
-            expira = time.time() + pendente["meses"] * 30 * 86400
-            db["licencas_aluguel"].update_one({"user_id": user_id}, {"$set": {"expira_em": expira, "meses": pendente["meses"], "ativo": True}}, upsert=True)
-            db["alugueis_pendentes"].update_one({"payment_id": int(pid)}, {"$set": {"status": "pago"}})
-        link = f"https://t.me/{context.bot.username}?startgroup=true"
-        await query.message.edit_text("✅ **Pago!** Adicione o bot:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🤖 Adicionar", url=link)], [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]]), parse_mode="Markdown")
-    else:
-        await query.answer("⏳ Aguardando pagamento...", show_alert=True)
+
+    if not MP_ACCESS_TOKEN:
+        await query.answer("⚠️ Token não configurado!", show_alert=True)
+        return
+
+    try:
+        resp = requests.get(f"https://api.mercadopago.com/v1/payments/{pid}", headers={"Authorization": f"Bearer {MP_ACCESS_TOKEN}"}, timeout=10)
+        res = resp.json()
+        status = res.get("status")
+
+        if status == "approved":
+            db = get_db()
+            pendente = db["alugueis_pendentes"].find_one({"payment_id": int(pid)})
+            if pendente and pendente.get("status") != "pago":
+                expira = time.time() + pendente["meses"] * 30 * 86400
+                db["licencas_aluguel"].update_one({"user_id": user_id}, {"$set": {"expira_em": expira, "meses": pendente["meses"], "ativo": True}}, upsert=True)
+                db["alugueis_pendentes"].update_one({"payment_id": int(pid)}, {"$set": {"status": "pago"}})
+            link = f"https://t.me/{context.bot.username}?startgroup=true"
+            await query.message.edit_text(
+                "✅ **PAGAMENTO CONFIRMADO!**\n\nAdicione o bot ao seu grupo:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
+                    [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
+                ]), parse_mode="Markdown"
+            )
+        elif status in ["pending", "in_process"]:
+            await query.answer("⏳ Aguardando pagamento...", show_alert=True)
+        else:
+            await query.answer(f"❌ Status: {status}", show_alert=True)
+    except Exception as e:
+        await query.answer(f"Erro: {str(e)}", show_alert=True)
 
 async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -147,7 +188,8 @@ async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_
         mention = f"@{user.username}" if user.username else user.first_name
         try:
             await chat.send_message(f"Olá! Vou ficar por {restante} aqui. O ADM {mention} pagou! 😼")
-        except: pass
+        except Exception:
+            pass
 
 def registrar_aluguel(app):
     app.add_handler(CallbackQueryHandler(painel_aluguel, pattern="^menu_aluguel$"))
