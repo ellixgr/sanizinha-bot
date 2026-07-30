@@ -94,7 +94,7 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "👑 **Licença ativada com sucesso!**\n\nAdicione o bot ao seu grupo:",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
-                [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
+                [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_painel")]
             ]), parse_mode="Markdown"
         )
         return
@@ -105,7 +105,6 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.answer("⚡ Gerando pagamento...")
     
-    # ✅ Chave obrigatória do Mercado Pago
     idempotency_key = str(uuid.uuid4())
 
     try:
@@ -128,17 +127,28 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if resp.status_code in [200, 201]:
             pid = res.get("id")
             qr = res.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code", "")
+            
             db = get_db()
             db["alugueis_pendentes"].update_one({"payment_id": pid}, {
-                "$set": {"user_id": user_id, "meses": meses, "valor": valor, "status": "pendente"}
+                "$set": {"user_id": user_id, "meses": meses, "valor": valor, "status": "pendente", "qr_code": qr}
             }, upsert=True)
+
+            msg_completa = (
+                f"⚡ **PIX GERADO!**\n💸 Valor: R$ {valor:.2f}\n\n"
+                f"📋 **Código Pix Copia e Cola:**\n`{qr}`"
+            )
+            
+            # ✅ IGUAL AO SEGUNDO BOT — usa copy_text nativo do Telegram!
+            teclado_final = [
+                [InlineKeyboardButton("📋 Copiar Código Pix", copy_text=dict(text=qr))],
+                [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{pid}")],
+                [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_painel")]
+            ]
+            
             await query.message.edit_text(
-                f"⚡ **PIX GERADO!**\n💸 Valor: R$ {valor:.2f}\n\n📋 **Código Pix:**\n\n`{qr}`\n\n👇 Copie o código abaixo:",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📋 Copiar Código", callback_data=f"copiar_pix:{pid}")],
-                    [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{pid}")],
-                    [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_painel")]
-                ]), parse_mode="Markdown"
+                msg_completa,
+                reply_markup=InlineKeyboardMarkup(teclado_final),
+                parse_mode="Markdown"
             )
         else:
             await query.message.edit_text(f"❌ Erro: {res.get('message', 'Erro ao gerar pagamento')}", parse_mode="Markdown")
@@ -187,20 +197,6 @@ async def voltar_ao_painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await painel_aluguel(update, context)
-
-
-async def copiar_codigo_pix(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    dados = query.data
-    pid = dados.split(":")[1]
-    
-    db = get_db()
-    pendente = db["alugueis_pendentes"].find_one({"payment_id": int(pid)})
-    if pendente:
-        qr = pendente.get("qr_code", "")
-        await query.answer(f"Código copiado! ✅", show_alert=True)
-    else:
-        await query.answer("Código não encontrado!", show_alert=True)
 
 
 async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
