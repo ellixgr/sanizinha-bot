@@ -50,14 +50,28 @@ def get_db():
         _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1000, connectTimeoutMS=1000, maxPoolSize=50, tlsAllowInvalidCertificates=True)
     return _mongo_client["sanizinhabot_db"]
 
+# ✅ ✅ ✅ VERIFICAÇÃO DE GRUPO COM LOGS PRA VER O QUE ACONTECE ✅ ✅ ✅
 async def grupo_autorizado(chat_id: int) -> bool:
     try:
         db = get_db()
         agora = time.time()
-        grupo = db["grupos_autorizados"].find_one({"chat_id": chat_id, "ativo": True, "expira_em": {"$gt": agora}})
-        return bool(grupo)
+        logger.info(f"🔍 Verificando grupo {chat_id} | agora={agora}")
+        grupo = db["grupos_autorizados"].find_one({"chat_id": chat_id})
+        if not grupo:
+            logger.warning(f"❌ Grupo {chat_id} NÃO ENCONTRADO no MongoDB!")
+            return False
+        logger.info(f"📋 Dados do grupo: chat_id={grupo.get('chat_id')} | ativo={grupo.get('ativo')} | expira_em={grupo.get('expira_em')}")
+        if grupo.get("ativo") != True:
+            logger.warning(f"❌ Grupo {chat_id} NÃO ESTÁ ATIVO!")
+            return False
+        expira = grupo.get("expira_em", 0)
+        if expira <= agora:
+            logger.warning(f"❌ Grupo {chat_id} EXPIROU! expira={expira} agora={agora}")
+            return False
+        logger.info(f"✅ Grupo {chat_id} ESTÁ AUTORIZADO!")
+        return True
     except Exception as e:
-        logger.error(f"Erro verifica grupo: {e}")
+        logger.error(f"❌ ERRO ao verifica grupo: {e}")
         return False
 
 async def verificar_assinante(usuario_id: int) -> bool:
@@ -83,22 +97,6 @@ async def listar_grupos_usuario(usuario_id: int):
     except Exception as e:
         logger.error(f"Erro lista grupos: {e}")
         return []
-
-async def cmd_registrar_aluguel_dono(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    if not chat or chat.type == "private":
-        await update.message.reply_text("⚠️ Só funciona em grupos!")
-        return
-    if not DONO_ID or str(user.id) != str(DONO_ID):
-        await update.message.reply_text("❌ Apenas o dono!")
-        return
-    db = get_db()
-    agora = time.time()
-    expira_em = agora + (10 * 365 * 24 * 60 * 60)
-    db["grupos_autorizados"].update_one({"chat_id": chat.id}, {"$set":{"chat_id":chat.id,"chat_title":chat.title,"registrado_por":user.id,"expira_em":expira_em,"ativo":True}}, upsert=True)
-    db["avisos_grupos_piratas"].delete_one({"chat_id": chat.id})
-    await update.message.reply_text(f"✅ Grupo registrado com sucesso!", parse_mode="Markdown")
 
 async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id_verificar=None) -> bool:
     uid = update.effective_user.id
@@ -130,16 +128,16 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-# ✅ ✅ ✅ INTERCEPTADOR CORRIGIDO — NÃO BLOQUEIA NENHUM BOTÃO! ✅ ✅ ✅
+# ✅ ✅ ✅ INTERCEPTADOR — NÃO BLOQUEIA NENHUM CLIQUE DE BOTÃO ✅ ✅ ✅
 async def interceptador_grupos_nao_autorizados(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
 
-    # ✅ SE FOR CLIQUE DE BOTÃO → DEIXA PASSAR SEMPRE! NÃO BLOQUEIA NENHUM BOTÃO!
+    # ✅ SE FOR CLIQUE DE BOTÃO → DEIXA PASSAR SEMPRE!
     if update.callback_query:
-        return  # ✅ TODOS OS BOTÕES FUNCIONAM! VOLTAR, MENU, TUDO!
+        return
 
-    # ✅ AQUI SÓ BLOQUEIA COMANDOS DIGITADOS NO CHAT (ex: /ping, /play)
+    # ✅ SÓ BLOQUEIA COMANDOS DIGITADOS NO CHAT
     if not chat or chat.type == "private":
         return
     if DONO_ID and str(user.id) == str(DONO_ID):
@@ -512,8 +510,7 @@ def main():
     registrar_ping(application); registrar_id(application); registrar_perfil(application); registrar_ban(application)
     setup_play(application); registrar_mutar(application); registrar_deploy(application); registrar_aluguel(application)
 
-    application.add_handler(CommandHandler("lw", cmd_registrar_aluguel_dono))
-
+    # ✅ REMOVIDO O /lw — SÓ FICA O /addgrupo
     async def wrapper_addgrupo(update, context):
         await cmd_addgrupo(update, context, get_db, DONO_ID, FUSO_BR)
     application.add_handler(CommandHandler("addgrupo", wrapper_addgrupo))
