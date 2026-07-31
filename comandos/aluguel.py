@@ -44,7 +44,11 @@ async def painel_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
     ])
     await query.answer()
-    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+    try:
+        await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            await query.message.reply_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 
 async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,7 +79,11 @@ async def callback_aluguel_painel(update: Update, context: ContextTypes.DEFAULT_
         [InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")]
     ])
     await query.answer()
-    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+    try:
+        await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            await query.message.reply_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 
 async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -90,13 +98,16 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         expira = time.time() + meses * 30 * 86400
         db["licencas_aluguel"].update_one({"user_id": user_id}, {"$set": {"expira_em": expira, "meses": meses, "ativo": True}}, upsert=True)
         link = f"https://t.me/{context.bot.username}?startgroup=true"
-        await query.message.edit_text(
-            "👑 **Licença ativada com sucesso!**\n\nAdicione o bot ao seu grupo:",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
-                [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_ao_painel")]
-            ]), parse_mode="Markdown"
-        )
+        texto = "👑 **Licença ativada com sucesso!**\n\nAdicione o bot ao seu grupo:"
+        teclado = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
+            [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_ao_painel")]
+        ])
+        try:
+            await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+        except Exception as e:
+            if "Message is not modified" not in str(e):
+                await query.message.reply_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
     if not MP_ACCESS_TOKEN:
@@ -144,10 +155,11 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_ao_painel")]
             ]
             
-            await query.message.edit_text(
-                msg_completa,
-                reply_markup=InlineKeyboardMarkup(teclado_final)
-            )
+            try:
+                await query.message.edit_text(msg_completa, reply_markup=InlineKeyboardMarkup(teclado_final))
+            except Exception as e:
+                if "Message is not modified" not in str(e):
+                    await query.message.reply_text(msg_completa, reply_markup=InlineKeyboardMarkup(teclado_final))
         else:
             await query.message.edit_text(f"❌ Erro: {res.get('message', 'Erro ao gerar pagamento')}")
     except Exception as e:
@@ -176,13 +188,16 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
                 db["licencas_aluguel"].update_one({"user_id": user_id}, {"$set": {"expira_em": expira, "meses": pendente["meses"], "ativo": True}}, upsert=True)
                 db["alugueis_pendentes"].update_one({"payment_id": int(pid)}, {"$set": {"status": "pago"}})
             link = f"https://t.me/{context.bot.username}?startgroup=true"
-            await query.message.edit_text(
-                "✅ PAGAMENTO CONFIRMADO! 🎉\n\nAdicione o bot ao seu grupo:",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
-                    [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_ao_painel")]
-                ])
-            )
+            texto = "✅ PAGAMENTO CONFIRMADO! 🎉\n\nAdicione o bot ao seu grupo:"
+            teclado = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
+                [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_ao_painel")]
+            ])
+            try:
+                await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+            except Exception as e:
+                if "Message is not modified" not in str(e):
+                    await query.message.reply_text(texto, reply_markup=teclado, parse_mode="Markdown")
         elif status in ["pending", "in_process"]:
             await query.answer("⏳ Aguardando pagamento...", show_alert=True)
         else:
