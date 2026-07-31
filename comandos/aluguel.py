@@ -4,7 +4,7 @@ import uuid
 import requests
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, CallbackQueryHandler, CommandHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, CallbackQueryHandler
 
 MONGO_URI = os.environ.get("MONGO_URI")
 MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN")
@@ -92,7 +92,6 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     meses = context.user_data.get(f"aluguel_meses_{user_id}", 1)
     valor = meses * 10.00
 
-    # ✅ SE FOR O DONO, ATIVA DIRETO
     if str(user_id) == str(DONO_ID):
         db = get_db()
         expira = time.time() + meses * 30 * 86400
@@ -119,7 +118,6 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.answer("⚡ Gerando pagamento...")
 
-    # ✅ IGUALZINHO AO SEU BOT QUE FUNCIONA!
     url = "https://api.mercadopago.com/v1/payments"
     idempotency_key = str(uuid.uuid4())
 
@@ -148,7 +146,6 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             payment_id = resp_data["id"]
             qr_code = resp_data.get("point_of_interaction", {}).get("transaction_data", {}).get("qr_code", "")
 
-            # ✅ SALVA NO BANCO
             db = get_db()
             db["alugueis_pendentes"].update_one(
                 {"payment_id": payment_id},
@@ -258,31 +255,36 @@ async def voltar_ao_painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await painel_aluguel(update, context)
 
 
-async def verificar_entrada_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    if not chat or chat.type not in ["group", "supergroup"] or not user:
+async def voltar_ao_menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from bot import start
+    await start(update, context)
+
+
+# ✅ CENTRAL — O bot.py SÓ CHAMA ISSO AQUI!
+async def tratar_todos_botoes_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    dados = update.callback_query.data
+
+    if dados in ["aluguel_mais", "aluguel_menos", "aluguel_info_mes"]:
+        await callback_aluguel_painel(update, context)
         return
-    db = get_db()
-    agora = time.time()
-    if str(user.id) == str(DONO_ID):
-        db["licencas_aluguel"].update_one({"user_id": user.id}, {"$setOnInsert": {"expira_em": agora + 30*86400, "meses": 1, "ativo": True}}, upsert=True)
-    autorizado = db["grupos_autorizados"].find_one({"chat_id": chat.id, "expira_em": {"$gt": agora}})
-    licenca = db["licencas_aluguel"].find_one({"user_id": user.id})
-    valido = autorizado or (licenca and licenca.get("ativo") and licenca.get("expira_em", 0) > agora)
-    if valido:
-        restante = "permanente" if autorizado else f"{int((licenca['expira_em']-agora)/86400)} dias"
-        mention = f"@{user.username}" if user.username else user.first_name
-        try:
-            await chat.send_message(f"Olá! Vou ficar por {restante} aqui. O ADM {mention} pagou! 😼")
-        except Exception:
-            pass
+
+    if dados == "aluguel_gerar_pix":
+        await gerar_pix_aluguel(update, context)
+        return
+
+    if dados.startswith("checar_pagamento_"):
+        await verificar_status_pagamento(update, context)
+        return
+
+    if dados == "voltar_ao_painel":
+        await voltar_ao_painel(update, context)
+        return
+
+    if dados == "voltar_menu_principal":
+        await voltar_ao_menu_principal(update, context)
+        return
 
 
 def registrar_aluguel(app):
     app.add_handler(CallbackQueryHandler(painel_aluguel, pattern="^menu_aluguel$"))
-    app.add_handler(CallbackQueryHandler(callback_aluguel_painel, pattern="^aluguel_(mais|menos|info_mes)$"))
-    app.add_handler(CallbackQueryHandler(gerar_pix_aluguel, pattern="^aluguel_gerar_pix$"))
-    app.add_handler(CallbackQueryHandler(verificar_status_pagamento, pattern="^checar_pagamento_"))
-    app.add_handler(CallbackQueryHandler(voltar_ao_painel, pattern="^voltar_ao_painel$"))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, verificar_entrada_grupo))
+    app.add_handler(CallbackQueryHandler(tratar_todos_botoes_aluguel, pattern="^(aluguel_|checar_pagamento_)"))
