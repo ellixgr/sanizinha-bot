@@ -294,6 +294,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
+    # ✅ ALUGUEL — CORRIGIDO O NOME DA FUNÇÃO!
     if dados == "menu_aluguel":
         await query.answer()
         from comandos.aluguel import painel_aluguel
@@ -302,8 +303,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if dados.startswith("aluguel_"):
         await query.answer()
-        from comandos.aluguel import callback_aluguel
-        await callback_aluguel(update, context)
+        from comandos.aluguel import callback_aluguel_painel  # ✅ NOME CORRETO!
+        await callback_aluguel_painel(update, context)
         return
 
     if dados.startswith("checar_pagamento_"):
@@ -348,9 +349,9 @@ def main():
     # ✅ INTERCEPTADOR DE PROTEÇÕES
     application.add_handler(TypeHandler(Update, interceptador_protecoes), group=-1)
 
-    # ✅ COMANDOS PRINCIPAIS
+    # ✅ COMANDOS PRINCIPAIS — /stts CORRIGIDO COM TODOS OS PARÂMETROS!
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("stts", lambda u,c: cmd_stts(u,c,get_db,verificar_se_e_adm)))
+    application.add_handler(CommandHandler("stts", lambda u,c: cmd_stts(u, c, get_db, verificar_se_e_adm)))
     application.add_handler(CommandHandler("addgrupo", lambda u,c: cmd_addgrupo(u,c,get_db,FUSO_BR)))
     application.add_handler(CallbackQueryHandler(button_handler))
 
