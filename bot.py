@@ -82,12 +82,19 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE,
         except: pass
     return False
 
+# ✅ CORRIGIDO: NÃO APAGA COMANDOS QUE COMEÇAM COM /
 async def interceptador_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user or not update.effective_chat:
         return
     user = update.effective_user
     chat = update.effective_chat
     message = update.message
+
+    # ✅ IGNORA TODOS OS COMANDOS — NÃO APAGA!
+    texto = message.text or ""
+    if texto.startswith("/"):
+        return
+
     if DONO_ID and str(user.id) == str(DONO_ID):
         return
     if chat.type == "private":
@@ -300,7 +307,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ✅ BOTÃO COMANDOS ADM → VERIFICA SE É ADM ANTES DE ABRIR
     if dados == "menu_adm":
-        await menu_adm_handler(update, context)  # ✅ JÁ TEM VERIFICAÇÃO DENTRO
+        await menu_adm_handler(update, context)
         return
 
     if dados in ["menu_bemvindo", "menu_config_grupo", "menu_punicao", "definir_punicao_aviso_ban", "definir_punicao_remover", "definir_punicao_silenciar"] or dados.startswith("toggle_"):
@@ -382,6 +389,7 @@ def main():
     application.add_handler(CommandHandler("addgrupo", lambda u,c: cmd_addgrupo(u,c,get_db,FUSO_BR)))
     application.add_handler(CallbackQueryHandler(button_handler))
 
+    # ✅ IMPORTA E REGISTRA TODOS OS COMANDOS DE BEM-VINDO DO ARQUIVO EXTERNO
     from comandos.ping import registrar_ping
     from comandos.id import registrar_id
     from comandos.perfil import registrar_perfil
