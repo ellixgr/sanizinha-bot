@@ -19,7 +19,7 @@ from protecao.status import (
     coletar_dados_status, cmd_stts, tratar_botoes_config
 )
 from dono.addgrupo import cmd_addgrupo, processar_callback_addgrupo
-from comandos.configp import tratar_botoes_configp  # ✅ IMPORTADO!
+from comandos.configp import tratar_botoes_configp
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -66,7 +66,6 @@ async def verificar_assinante(usuario_id: int) -> bool:
     try:
         db = get_db()
         agora = time.time()
-        # ✅ VERIFICA LICENÇA DE ALUGUEL
         licenca = db["licencas_aluguel"].find_one({"user_id": usuario_id, "ativo": True, "expira_em": {"$gt": agora}})
         return bool(licenca)
     except Exception as e:
@@ -123,10 +122,16 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-# ✅ MENU ADM — COM OS 2 BOTÕES (Bem-Vindo + Proteções)
+# ✅ MENU ADM — Chama cmd.py | SÓ ADM/DONO vê
 async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
+    # ✅ VERIFICA SE É ADM OU DONO
+    if not await verificar_se_e_adm(update, context):
+        await query.answer("⚠️ Apenas Administradores!", show_alert=True)
+        return
+
     texto = ler_comandos_adm()
     teclado = InlineKeyboardMarkup([
         [InlineKeyboardButton("👋 Mensagem de Bem-Vindo", callback_data="menu_bemvindo")],
@@ -135,7 +140,7 @@ async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ MENU MEMBROS — COM Perfil + Jogos
+# ✅ MENU MEMBROS — Jogos AQUI SÓ
 async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -235,7 +240,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
             [InlineKeyboardButton("📜 Ver Comandos", callback_data="ver_comandos")]
         ]
-        # ✅ DONO SEMPRE VÊ O BOTÃO | USUÁRIO SÓ SE TEM LICENÇA
         eh_dono = (DONO_ID and str(user.id) == str(DONO_ID))
         if eh_dono or await verificar_assinante(user.id):
             botoes.insert(2, [InlineKeyboardButton("⚙️ Configurar Grupos", callback_data="menu_config_grupos")])
@@ -252,10 +256,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✰┃☀️ : {data}\n"
             "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
         )
+        # ✅ BOTÃO JOGOS REMOVIDO DAQUI → SÓ APARECE NO MENU MEMBROS
         botoes = [
             [InlineKeyboardButton("📜 Comandos Membro", callback_data="menu_membros")],
             [InlineKeyboardButton("🛡️ Comandos ADM", callback_data="menu_adm")],
-            [InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos_atalho")],
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
             [InlineKeyboardButton("➕ Adicionar ao seu Grupo", url=f"https://t.me/{context.bot.username}?startgroup=true")]
         ]
@@ -277,28 +281,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ CONFIGURAÇÃO DE GRUPOS NO PRIVADO — REGRAS DE ACESSO
+    # ✅ CONFIGURAÇÃO DE GRUPOS NO PRIVADO
     if dados == "menu_config_grupos":
         eh_dono = (DONO_ID and str(user_id) == str(DONO_ID))
         tem_licenca = await verificar_assinante(user_id)
 
         if eh_dono:
-            # 👑 DONO — avisa e carrega TODOS os grupos
             await query.answer("Opa! Como você é o DONO, tem acesso total! ✅", show_alert=True)
         elif not tem_licenca:
-            # ⚠️ USUÁRIO SEM LICENÇA — mostra aviso e BLOQUEIA
             await query.answer("⚠️ Você precisa alugar o bot para usar essa função!", show_alert=True)
             return
-        # ✅ TEM LICENÇA OU É DONO → continua e carrega os grupos
         await tratar_botoes_configp(update, context)
         return
 
-    # ✅ OUTROS comandos do configp (já passou pela verificação acima)
     if dados.startswith("config_grupo_") or dados.startswith("config_bemvindo_") or dados.startswith("config_protecao_") or dados.startswith("toggle_priv_") or dados.startswith("menu_punicao_priv_") or dados.startswith("def_pun_"):
         await tratar_botoes_configp(update, context)
         return
 
-    if dados in ["menu_adm", "menu_bemvindo", "menu_config_grupo", "menu_punicao", "definir_punicao_aviso_ban", "definir_punicao_remover", "definir_punicao_silenciar"] or dados.startswith("toggle_"):
+    # ✅ BOTÃO COMANDOS ADM → VERIFICA SE É ADM ANTES DE ABRIR
+    if dados == "menu_adm":
+        await menu_adm_handler(update, context)  # ✅ JÁ TEM VERIFICAÇÃO DENTRO
+        return
+
+    if dados in ["menu_bemvindo", "menu_config_grupo", "menu_punicao", "definir_punicao_aviso_ban", "definir_punicao_remover", "definir_punicao_silenciar"] or dados.startswith("toggle_"):
         await tratar_botoes_adm(update, context)
         return
 
@@ -312,7 +317,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await menu_membros_handler(update, context)
         return
 
-    # ✅ BOTÃO PERFIL — EXECUTA /perfil
     if dados == "executar_perfil":
         await query.answer("Abrindo seu perfil...")
         from comandos.perfil import perfil_cmd
@@ -326,7 +330,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
-    # ✅ ALUGUEL
     if dados == "menu_aluguel":
         await query.answer()
         from comandos.aluguel import painel_aluguel
