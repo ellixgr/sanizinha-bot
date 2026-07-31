@@ -19,6 +19,7 @@ from protecao.status import (
     coletar_dados_status, cmd_stts, tratar_botoes_config
 )
 from dono.addgrupo import cmd_addgrupo, processar_callback_addgrupo
+from comandos.configp import tratar_botoes_configp  # ✅ IMPORTADO!
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -65,8 +66,9 @@ async def verificar_assinante(usuario_id: int) -> bool:
     try:
         db = get_db()
         agora = time.time()
-        grupo = db["grupos_autorizados"].find_one({"registrado_por": usuario_id, "ativo": True, "expira_em": {"$gt": agora}})
-        return bool(grupo)
+        # ✅ VERIFICA LICENÇA DE ALUGUEL (não só grupo cadastrado)
+        licenca = db["licencas_aluguel"].find_one({"user_id": usuario_id, "ativo": True, "expira_em": {"$gt": agora}})
+        return bool(licenca)
     except Exception as e:
         logger.error(f"Erro verifica assinante: {e}")
         return False
@@ -121,22 +123,28 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
+# ✅ MENU ADM — COM OS 2 BOTÕES (Bem-Vindo + Proteções)
 async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     texto = ler_comandos_adm()
     teclado = InlineKeyboardMarkup([
         [InlineKeyboardButton("👋 Mensagem de Bem-Vindo", callback_data="menu_bemvindo")],
-        [InlineKeyboardButton("🛡️ Configurações do Grupo", callback_data="menu_config_grupo")],
+        [InlineKeyboardButton("🛡️ Configurar Proteções", callback_data="menu_config_grupo")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
     ])
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
+# ✅ MENU MEMBROS — COM Perfil + Jogos
 async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     texto = ler_comandos_membros()
-    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
+    teclado = InlineKeyboardMarkup([
+        [InlineKeyboardButton("👤 Ver Perfil", callback_data="executar_perfil")],
+        [InlineKeyboardButton("🎮 Jogos", callback_data="menu_jogos_atalho")],
+        [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]
+    ])
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 async def tratar_botoes_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -227,6 +235,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
             [InlineKeyboardButton("📜 Ver Comandos", callback_data="ver_comandos")]
         ]
+        # ✅ SÓ APARECE SE TEM LICENÇA ATIVA
         if await verificar_assinante(user.id):
             botoes.insert(2, [InlineKeyboardButton("⚙️ Configurar Grupos", callback_data="menu_config_grupos")])
         botoes = InlineKeyboardMarkup(botoes)
@@ -266,6 +275,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = query.data
     logger.info(f"📥 CLIQUE: {dados}")
 
+    # ✅ CONFIGURAÇÃO DE GRUPOS NO PRIVADO (configp.py)
+    if dados == "menu_config_grupos" or dados.startswith("config_grupo_") or dados.startswith("config_bemvindo_") or dados.startswith("config_protecao_") or dados.startswith("toggle_priv_") or dados.startswith("menu_punicao_priv_") or dados.startswith("def_pun_"):
+        await tratar_botoes_configp(update, context)
+        return
+
     if dados in ["menu_adm", "menu_bemvindo", "menu_config_grupo", "menu_punicao", "definir_punicao_aviso_ban", "definir_punicao_remover", "definir_punicao_silenciar"] or dados.startswith("toggle_"):
         await tratar_botoes_adm(update, context)
         return
@@ -280,6 +294,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await menu_membros_handler(update, context)
         return
 
+    # ✅ BOTÃO PERFIL — EXECUTA /perfil
+    if dados == "executar_perfil":
+        await query.answer("Abrindo seu perfil...")
+        from comandos.perfil import perfil_cmd
+        await perfil_cmd(update, context)
+        return
+
     if dados == "ver_comandos":
         await query.answer()
         texto = ler_comandos_membros() + "\n" + ler_comandos_adm()
@@ -287,14 +308,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
-    # ✅ ALUGUEL — O bot.py SÓ CHAMA, TUDO O RESTO FICA NO ALUGUEL.PY!
+    # ✅ ALUGUEL
     if dados == "menu_aluguel":
         await query.answer()
         from comandos.aluguel import painel_aluguel
         await painel_aluguel(update, context)
         return
 
-    # ✅ TUDO que começa com aluguel_ ou checar_pagamento_ → VAI PRO ALUGUEL.PY
     if dados.startswith("aluguel_") or dados.startswith("checar_pagamento_") or dados == "voltar_ao_painel":
         await query.answer()
         from comandos.aluguel import tratar_todos_botoes_aluguel
