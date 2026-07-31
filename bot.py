@@ -66,7 +66,7 @@ async def verificar_assinante(usuario_id: int) -> bool:
     try:
         db = get_db()
         agora = time.time()
-        # ✅ VERIFICA LICENÇA DE ALUGUEL (não só grupo cadastrado)
+        # ✅ VERIFICA LICENÇA DE ALUGUEL
         licenca = db["licencas_aluguel"].find_one({"user_id": usuario_id, "ativo": True, "expira_em": {"$gt": agora}})
         return bool(licenca)
     except Exception as e:
@@ -235,8 +235,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🤖 Alugar Bot", callback_data="menu_aluguel")],
             [InlineKeyboardButton("📜 Ver Comandos", callback_data="ver_comandos")]
         ]
-        # ✅ SÓ APARECE SE TEM LICENÇA ATIVA
-        if await verificar_assinante(user.id):
+        # ✅ DONO SEMPRE VÊ O BOTÃO | USUÁRIO SÓ SE TEM LICENÇA
+        eh_dono = (DONO_ID and str(user.id) == str(DONO_ID))
+        if eh_dono or await verificar_assinante(user.id):
             botoes.insert(2, [InlineKeyboardButton("⚙️ Configurar Grupos", callback_data="menu_config_grupos")])
         botoes = InlineKeyboardMarkup(botoes)
     else:
@@ -273,10 +274,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not query:
         return
     dados = query.data
+    user_id = update.effective_user.id
     logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ CONFIGURAÇÃO DE GRUPOS NO PRIVADO (configp.py)
-    if dados == "menu_config_grupos" or dados.startswith("config_grupo_") or dados.startswith("config_bemvindo_") or dados.startswith("config_protecao_") or dados.startswith("toggle_priv_") or dados.startswith("menu_punicao_priv_") or dados.startswith("def_pun_"):
+    # ✅ CONFIGURAÇÃO DE GRUPOS NO PRIVADO — REGRAS DE ACESSO
+    if dados == "menu_config_grupos":
+        eh_dono = (DONO_ID and str(user_id) == str(DONO_ID))
+        tem_licenca = await verificar_assinante(user_id)
+
+        if eh_dono:
+            # 👑 DONO — avisa e carrega TODOS os grupos
+            await query.answer("Opa! Como você é o DONO, tem acesso total! ✅", show_alert=True)
+        elif not tem_licenca:
+            # ⚠️ USUÁRIO SEM LICENÇA — mostra aviso e BLOQUEIA
+            await query.answer("⚠️ Você precisa alugar o bot para usar essa função!", show_alert=True)
+            return
+        # ✅ TEM LICENÇA OU É DONO → continua e carrega os grupos
+        await tratar_botoes_configp(update, context)
+        return
+
+    # ✅ OUTROS comandos do configp (já passou pela verificação acima)
+    if dados.startswith("config_grupo_") or dados.startswith("config_bemvindo_") or dados.startswith("config_protecao_") or dados.startswith("toggle_priv_") or dados.startswith("menu_punicao_priv_") or dados.startswith("def_pun_"):
         await tratar_botoes_configp(update, context)
         return
 
