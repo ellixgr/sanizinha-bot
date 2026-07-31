@@ -81,7 +81,6 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE,
         except: pass
     return False
 
-# ✅ INTERCEPTADOR DE PROTEÇÕES — CHAMA FUNÇÃO DO STATUS.PY
 async def interceptador_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user or not update.effective_chat:
         return
@@ -122,7 +121,6 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-# ✅ MENU ADM
 async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -141,7 +139,6 @@ async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ TRATA BOTÕES DO MENU ADM
 async def tratar_botoes_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     dados = query.data
@@ -150,7 +147,6 @@ async def tratar_botoes_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
 
-    # ✅ MENU BEM-VINDO
     if dados == "menu_bemvindo":
         await query.answer()
         try:
@@ -160,7 +156,6 @@ async def tratar_botoes_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.message.edit_text(f"⚠️ Módulo bemvindo não encontrado: {e}")
         return
 
-    # ✅ ABRIR PAINEL DE CONFIGURAÇÕES (CHAMA STATUS.PY)
     if dados == "menu_config_grupo":
         await query.answer()
         chat = update.effective_chat
@@ -198,7 +193,6 @@ async def tratar_botoes_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
-    # ✅ DEMAIS BOTÕES DE CONFIGURAÇÃO → CHAMA STATUS.PY
     if dados.startswith("toggle_") or dados in ["menu_punicao", "definir_punicao_aviso_ban", "definir_punicao_remover", "definir_punicao_silenciar"]:
         await tratar_botoes_config(update, context, get_db, verificar_se_e_adm)
         return
@@ -272,7 +266,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = query.data
     logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ BOTÕES DO MENU ADM / CONFIGURAÇÕES
     if dados in ["menu_adm", "menu_bemvindo", "menu_config_grupo", "menu_punicao", "definir_punicao_aviso_ban", "definir_punicao_remover", "definir_punicao_silenciar"] or dados.startswith("toggle_"):
         await tratar_botoes_adm(update, context)
         return
@@ -294,23 +287,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
-    # ✅ ALUGUEL — CORRIGIDO O NOME DA FUNÇÃO!
+    # ✅ ALUGUEL — O bot.py SÓ CHAMA, TUDO O RESTO FICA NO ALUGUEL.PY!
     if dados == "menu_aluguel":
         await query.answer()
         from comandos.aluguel import painel_aluguel
         await painel_aluguel(update, context)
         return
 
-    if dados.startswith("aluguel_"):
+    # ✅ TUDO que começa com aluguel_ ou checar_pagamento_ → VAI PRO ALUGUEL.PY
+    if dados.startswith("aluguel_") or dados.startswith("checar_pagamento_") or dados == "voltar_ao_painel":
         await query.answer()
-        from comandos.aluguel import callback_aluguel_painel  # ✅ NOME CORRETO!
-        await callback_aluguel_painel(update, context)
-        return
-
-    if dados.startswith("checar_pagamento_"):
-        await query.answer()
-        from comandos.aluguel import verificar_status_pagamento
-        await verificar_status_pagamento(update, context)
+        from comandos.aluguel import tratar_todos_botoes_aluguel
+        await tratar_todos_botoes_aluguel(update, context)
         return
 
     if dados.startswith("addgrupo_"):
@@ -346,10 +334,8 @@ def main():
 
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # ✅ INTERCEPTADOR DE PROTEÇÕES
     application.add_handler(TypeHandler(Update, interceptador_protecoes), group=-1)
 
-    # ✅ COMANDOS PRINCIPAIS — /stts CORRIGIDO COM TODOS OS PARÂMETROS!
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stts", lambda u,c: cmd_stts(u, c, get_db, verificar_se_e_adm)))
     application.add_handler(CommandHandler("addgrupo", lambda u,c: cmd_addgrupo(u,c,get_db,FUSO_BR)))
