@@ -94,7 +94,7 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "👑 **Licença ativada com sucesso!**\n\nAdicione o bot ao seu grupo:",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
-                [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_painel")]
+                [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_ao_painel")]
             ]), parse_mode="Markdown"
         )
         return
@@ -133,7 +133,6 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "$set": {"user_id": user_id, "meses": meses, "valor": valor, "status": "pendente", "qr_code": qr}
             }, upsert=True)
 
-            # ✅ SEM MARKDOWN NO CÓDIGO PIX → NÃO DÁ MAIS ERRO DE PARSE!
             msg_completa = (
                 f"⚡ PIX GERADO!\n💸 Valor: R$ {valor:.2f}\n\n"
                 f"📋 Código Pix Copia e Cola:\n\n{qr}\n\n"
@@ -142,10 +141,9 @@ async def gerar_pix_aluguel(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             teclado_final = [
                 [InlineKeyboardButton("🔄 Verificar Pagamento", callback_data=f"checar_pagamento_{pid}")],
-                [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_painel")]
+                [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_ao_painel")]
             ]
             
-            # ✅ SEM parse_mode="Markdown" → Telegram não tenta interpretar caracteres especiais!
             await query.message.edit_text(
                 msg_completa,
                 reply_markup=InlineKeyboardMarkup(teclado_final)
@@ -182,7 +180,7 @@ async def verificar_status_pagamento(update: Update, context: ContextTypes.DEFAU
                 "✅ PAGAMENTO CONFIRMADO! 🎉\n\nAdicione o bot ao seu grupo:",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🤖 Adicionar ao Grupo", url=link)],
-                    [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_painel")]
+                    [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="voltar_ao_painel")]
                 ])
             )
         elif status in ["pending", "in_process"]:
@@ -225,5 +223,5 @@ def registrar_aluguel(app):
     app.add_handler(CallbackQueryHandler(callback_aluguel_painel, pattern="^aluguel_(mais|menos|info_mes)$"))
     app.add_handler(CallbackQueryHandler(gerar_pix_aluguel, pattern="^aluguel_gerar_pix$"))
     app.add_handler(CallbackQueryHandler(verificar_status_pagamento, pattern="^checar_pagamento_"))
-    app.add_handler(CallbackQueryHandler(voltar_ao_painel, pattern="^voltar_painel$"))
+    app.add_handler(CallbackQueryHandler(voltar_ao_painel, pattern="^voltar_ao_painel$"))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, verificar_entrada_grupo))
