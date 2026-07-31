@@ -82,18 +82,19 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE,
         except: pass
     return False
 
-# ✅ CORRIGIDO: NÃO APAGA COMANDOS QUE COMEÇAM COM /
+# ✅ CORRIGIDO: NÃO APAGA NENHUM COMANDO /...
 async def interceptador_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user or not update.effective_chat:
         return
+
+    # ✅ IGNORA TODOS OS COMANDOS — NÃO APAGA MAIS NENHUM /COMANDO!
+    texto = update.message.text or update.message.caption or ""
+    if texto.startswith("/"):
+        return
+
     user = update.effective_user
     chat = update.effective_chat
     message = update.message
-
-    # ✅ IGNORA TODOS OS COMANDOS — NÃO APAGA!
-    texto = message.text or ""
-    if texto.startswith("/"):
-        return
 
     if DONO_ID and str(user.id) == str(DONO_ID):
         return
@@ -101,6 +102,7 @@ async def interceptador_protecoes(update: Update, context: ContextTypes.DEFAULT_
         return
     if not await grupo_autorizado(chat.id):
         return
+
     is_admin = await verificar_se_e_adm(update, context)
     bloqueado = await verificar_todas_protecoes(
         update, context, chat, user, message,
@@ -134,7 +136,6 @@ async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    # ✅ VERIFICA SE É ADM OU DONO
     if not await verificar_se_e_adm(update, context):
         await query.answer("⚠️ Apenas Administradores!", show_alert=True)
         return
@@ -147,7 +148,7 @@ async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ MENU MEMBROS — Jogos AQUI SÓ
+# ✅ MENU MEMBROS
 async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -263,7 +264,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✰┃☀️ : {data}\n"
             "✰┃ 🤖 **BOT**\n✪/ 🌬️ **Sanizinha** ®\n\n┌──────────┐\n   ≡  **M E N U S**  ≡\n└──────────┘"
         )
-        # ✅ BOTÃO JOGOS REMOVIDO DAQUI → SÓ APARECE NO MENU MEMBROS
         botoes = [
             [InlineKeyboardButton("📜 Comandos Membro", callback_data="menu_membros")],
             [InlineKeyboardButton("🛡️ Comandos ADM", callback_data="menu_adm")],
@@ -288,11 +288,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ CONFIGURAÇÃO DE GRUPOS NO PRIVADO
     if dados == "menu_config_grupos":
         eh_dono = (DONO_ID and str(user_id) == str(DONO_ID))
         tem_licenca = await verificar_assinante(user_id)
-
         if eh_dono:
             await query.answer("Opa! Como você é o DONO, tem acesso total! ✅", show_alert=True)
         elif not tem_licenca:
@@ -305,7 +303,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await tratar_botoes_configp(update, context)
         return
 
-    # ✅ BOTÃO COMANDOS ADM → VERIFICA SE É ADM ANTES DE ABRIR
     if dados == "menu_adm":
         await menu_adm_handler(update, context)
         return
@@ -389,7 +386,6 @@ def main():
     application.add_handler(CommandHandler("addgrupo", lambda u,c: cmd_addgrupo(u,c,get_db,FUSO_BR)))
     application.add_handler(CallbackQueryHandler(button_handler))
 
-    # ✅ IMPORTA E REGISTRA TODOS OS COMANDOS DE BEM-VINDO DO ARQUIVO EXTERNO
     from comandos.ping import registrar_ping
     from comandos.id import registrar_id
     from comandos.perfil import registrar_perfil
