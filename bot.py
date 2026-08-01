@@ -82,10 +82,20 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE,
         except: pass
     return False
 
-# ✅ CORRIGIDO: NÃO APAGA NENHUM COMANDO!
+# ✅ === INTERCEPTADOR CORRIGIDO — NÃO BLOQUEIA QUEM ESTÁ SALVANDO BEM-VINDO ===
 async def interceptador_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user or not update.effective_chat:
         return
+
+    # ✅ IGNORA SE USUÁRIO ESTÁ NO MEIO DE SALVAR BEM-VINDO!
+    uid = update.effective_user.id
+    chat_id = update.effective_chat.id
+    try:
+        from comandos.bemvindo import ESTADOS_FLUXO
+        if (chat_id, uid) in ESTADOS_FLUXO:
+            return  # ✅ PASSA DIREITO, NÃO BLOQUEIA!
+    except:
+        pass
 
     # ✅ IGNORA TUDO QUE COMEÇA COM / → COMANDOS NÃO SÃO APAGADOS!
     texto = update.message.text or update.message.caption or ""
@@ -386,6 +396,7 @@ def main():
 
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    # ✅ INTERCEPTADOR — MAS AGORA NÃO BLOQUEIA QUEM ESTÁ SALVANDO BEM-VINDO
     application.add_handler(TypeHandler(Update, interceptador_protecoes), group=-1)
 
     application.add_handler(CommandHandler("start", start))
