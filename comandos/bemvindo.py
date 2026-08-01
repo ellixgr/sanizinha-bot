@@ -81,7 +81,7 @@ def alternar_status_mongo(chat_id: int) -> bool:
     col_bemvindo.update_one({"chat_id": chat_id}, {"$set": {"status": novo_status}}, upsert=True)
     return novo_status
 
-# ✅ FUNÇÃO CHAMADA PELO MENU ADM
+# ✅ CHAMADO PELO MENU ADM
 async def menu_bemvindo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -94,17 +94,16 @@ async def menu_bemvindo_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     await enviar_painel_principal_bv(context, chat_id, query=query)
 
-# ✅ COMANDO /bemvindo — NÃO APAGA A MENSAGEM!
+# ✅ COMANDO /bemvindo — NÃO APAGA O COMANDO!
 async def cmd_bemvindo_painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
 
-    # ✅ VERIFICA SE É ADM — SE NÃO FOR, FALA QUE PRECISA SER ADM
     if not await is_user_admin(update, chat_id, user_id, context):
         await update.message.reply_text("❌ Você precisa ser ADMINISTRADOR para usar esse comando!")
         return
 
-    # ✅ REMOVIDO: await update.message.delete() ← NÃO APAGA MAIS O COMANDO!
+    # ✅ SEM LINHA DE APAGAR O COMANDO!
 
     await enviar_painel_principal_bv(context, chat_id, message=update.message)
 
@@ -186,47 +185,73 @@ async def boas_vindas_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             continue
         await enviar_mensagem_boas_vindas(context, update.effective_chat.id, member)
 
+# ✅ === FUNÇÕES DOS BOTÕES ===
+
 async def cb_toggle_status_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
     if not await is_user_admin(update, chat_id, user_id, context):
-        await update.callback_query.answer("⚠️ Apenas ADMs!", show_alert=True)
+        await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
     novo_status = alternar_status_mongo(chat_id)
     aviso = "✅ Boas-vindas ATIVADAS!" if novo_status else "🔴 Boas-vindas DESATIVADAS!"
-    await enviar_painel_principal_bv(context, chat_id, query=update.callback_query, aviso_extra=aviso)
-    await update.callback_query.answer(aviso)
+    await enviar_painel_principal_bv(context, chat_id, query=query, aviso_extra=aviso)
 
 async def cb_edit_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
     if not await is_user_admin(update, chat_id, user_id, context):
-        await update.callback_query.answer("⚠️ Apenas ADMs!", show_alert=True)
+        await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
-    ESTADOS_FLUXO[(chat_id, user_id)] = ("aguardando_texto_bv", update.callback_query.message.message_id)
+    ESTADOS_FLUXO[(chat_id, user_id)] = ("aguardando_texto_bv", query.message.message_id)
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancelar", callback_data="bv_cancelar")]])
     texto = "📄 Envie a mensagem de boas-vindas agora!\nUse: {MENTION}, {GROUPNAME}, {NAME}, {DATE}, {TIME}"
-    await update.callback_query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+    await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
     if not await is_user_admin(update, chat_id, user_id, context):
-        await update.callback_query.answer("⚠️ Apenas ADMs!", show_alert=True)
+        await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
     texto, _, _, _ = carregar_dados_bv(chat_id)
     txt = texto or "Nenhum texto salvo."
-    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]])
-    await update.callback_query.message.edit_text(f"📄 Texto atual:\n\n{txt}", reply_markup=teclado, parse_mode="Markdown")
+    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_adm")]])
+    await query.message.edit_text(f"📄 Texto atual:\n\n{txt}", reply_markup=teclado, parse_mode="Markdown")
 
 async def cb_cancelar_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
     if not await is_user_admin(update, chat_id, user_id, context):
-        await update.callback_query.answer("⚠️ Apenas ADMs!", show_alert=True)
+        await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
     ESTADOS_FLUXO.pop((chat_id, user_id), None)
-    await enviar_painel_principal_bv(context, chat_id, query=update.callback_query)
+    await enviar_painel_principal_bv(context, chat_id, query=query)
+
+# ✅ FUNÇÃO ÚNICA QUE TRATA TODOS OS BOTÕES
+async def tratar_botoes_bemvindo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    dados = update.callback_query.data
+    if dados == "bv_toggle_status":
+        await cb_toggle_status_bv(update, context)
+    elif dados == "bv_edit_texto":
+        await cb_edit_texto_bv(update, context)
+    elif dados == "bv_ver_texto":
+        await cb_ver_texto_bv(update, context)
+    elif dados == "bv_cancelar":
+        await cb_cancelar_bv(update, context)
+    elif dados == "menu_adm":
+        from comandos.menus import menu_adm_handler
+        await menu_adm_handler(update, context)
+    else:
+        await update.callback_query.answer("❌ Função não encontrada!", show_alert=True)
 
 async def capturar_fluxo_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -241,13 +266,9 @@ async def capturar_fluxo_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     if estado == "aguardando_texto_bv":
         texto = message.text or message.caption or ""
         salvar_no_mongo(chat.id, "texto", texto)
-        await enviar_painel_principal_bv(context, chat.id, aviso_extra="✅ Texto salvo!", edit_message_id=msg_id)
+        await enviar_painel_principal_bv(context, chat.id, aviso_extra="✅ Texto salvo!")
 
 def registrar_comandos_bv(application):
     application.add_handler(CommandHandler("bemvindo", cmd_bemvindo_painel, filters=~filters.ChatType.PRIVATE))
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & ~filters.ChatType.PRIVATE, boas_vindas_handler))
-    application.add_handler(CallbackQueryHandler(cb_toggle_status_bv, pattern=r"^bv_toggle_status$"))
-    application.add_handler(CallbackQueryHandler(cb_edit_texto_bv, pattern=r"^bv_edit_texto$"))
-    application.add_handler(CallbackQueryHandler(cb_ver_texto_bv, pattern=r"^bv_ver_texto$"))
-    application.add_handler(CallbackQueryHandler(cb_cancelar_bv, pattern=r"^bv_cancelar$"))
     application.add_handler(MessageHandler(~filters.COMMAND & filters.TEXT, capturar_fluxo_admin), group=1)
