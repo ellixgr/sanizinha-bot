@@ -82,12 +82,12 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE,
         except: pass
     return False
 
-# ✅ CORRIGIDO: NÃO APAGA NENHUM COMANDO /...
+# ✅ CORRIGIDO: NÃO APAGA NENHUM COMANDO!
 async def interceptador_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user or not update.effective_chat:
         return
 
-    # ✅ IGNORA TODOS OS COMANDOS — NÃO APAGA MAIS NENHUM /COMANDO!
+    # ✅ IGNORA TUDO QUE COMEÇA COM / → COMANDOS NÃO SÃO APAGADOS!
     texto = update.message.text or update.message.caption or ""
     if texto.startswith("/"):
         return
@@ -131,7 +131,7 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-# ✅ MENU ADM — Chama cmd.py | SÓ ADM/DONO vê
+# ✅ MENU ADM
 async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -160,6 +160,7 @@ async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     ])
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
+# ✅ TRATA BOTÕES DO PAINEL ADM
 async def tratar_botoes_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     dados = query.data
@@ -287,6 +288,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = query.data
     user_id = update.effective_user.id
     logger.info(f"📥 CLIQUE: {dados}")
+
+    # ✅ === BOTÕES DO BEM-VINDO — TODOS FUNCIONANDO ===
+    if dados.startswith("bv_"):
+        from comandos.bemvindo import tratar_botoes_bemvindo
+        await tratar_botoes_bemvindo(update, context)
+        return
 
     if dados == "menu_config_grupos":
         eh_dono = (DONO_ID and str(user_id) == str(DONO_ID))
