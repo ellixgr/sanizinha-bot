@@ -95,7 +95,7 @@ async def menu_bemvindo_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     await enviar_painel_principal_bv(context, chat_id, query=query)
 
-# ✅ COMANDO /bemvindo — NÃO APAGA O COMANDO!
+# ✅ COMANDO /bemvindo
 async def cmd_bemvindo_painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
@@ -204,7 +204,7 @@ async def boas_vindas_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             continue
         await enviar_mensagem_boas_vindas(context, update.effective_chat.id, member)
 
-# ✅ === EDITAR TEXTO — COM TODAS AS VARIÁVEIS ===
+# ✅ === EDITAR TEXTO ===
 async def cb_edit_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -250,7 +250,7 @@ async def cb_edit_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ === EDITAR BOTÕES/URL ===
+# ✅ === EDITAR BOTÕES ===
 async def cb_edit_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -276,7 +276,7 @@ async def cb_edit_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ === VER TEXTO / VER MÍDIA / VER BOTÕES ===
+# ✅ === VER FUNÇÕES ===
 async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -299,7 +299,7 @@ async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
     _, midia, _, _ = carregar_dados_bv(chat_id)
-    txt = f"✅ Mídia salva: {midia}" if midia else "❌ Nenhuma mídia salva."
+    txt = f"✅ Mídia salva!" if midia else "❌ Nenhuma mídia salva."
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]])
     await query.message.edit_text(f"🎞️ Mídia atual:\n\n{txt}", reply_markup=teclado, parse_mode="Markdown")
 
@@ -340,7 +340,7 @@ async def cb_cancelar_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await enviar_painel_principal_bv(context, chat_id, query=query)
 
 # ✅ === PARSEADOR DE BOTÕES ===
-def parsear_botoes(texto: str, username_bot: str = "") -> InlineKeyboardMarkup:
+def parsear_botoes(texto: str, username_bot: str = ""):
     linhas = texto.strip().split("\n")
     teclado = []
     regras_link = f"https://t.me/{username_bot}?startgroup=regras" if username_bot else ""
@@ -356,7 +356,7 @@ def parsear_botoes(texto: str, username_bot: str = "") -> InlineKeyboardMarkup:
             link = link.strip()
             
             if link.startswith("popup:") or link.startswith("alert:"):
-                txt_popup = link[6:].strip() if link.startswith("popup:") else link[6:].strip()
+                txt_popup = link[6:].strip()
                 botoes_linha.append(InlineKeyboardButton(titulo, callback_data=f"popup:{txt_popup}"))
             elif link.startswith("share:"):
                 conteudo = link[6:].strip()
@@ -372,7 +372,7 @@ def parsear_botoes(texto: str, username_bot: str = "") -> InlineKeyboardMarkup:
             teclado.append(botoes_linha)
     return InlineKeyboardMarkup(teclado) if teclado else None
 
-# ✅ === CAPTURA O QUE O USUÁRIO ENVIA ===
+# ✅ === CAPTURA O QUE O USUÁRIO ENVIA — CORRIGIDO ===
 async def capturar_fluxo_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -380,14 +380,18 @@ async def capturar_fluxo_admin(update: Update, context: ContextTypes.DEFAULT_TYP
     if not chat or not user or not message:
         return
     chave = (chat.id, user.id)
+    
+    # ⚠️ SE NÃO ESTÁ AGUARDANDO NADA → IGNORA
     if chave not in ESTADOS_FLUXO:
         return
+    
+    # ✅ ESTÁ AGUARDANDO → PROCESSA E SALVA
     estado, msg_id = ESTADOS_FLUXO.pop(chave)
     
     if estado == "aguardando_texto_bv":
         texto = message.text or message.caption or ""
         salvar_no_mongo(chat.id, "texto", texto)
-        await enviar_painel_principal_bv(context, chat.id, aviso_extra="✅ Texto salvo!")
+        await enviar_painel_principal_bv(context, chat.id, aviso_extra="✅ Texto SALVO com sucesso!")
     
     elif estado == "aguardando_midia_bv":
         legenda = message.caption or ""
@@ -397,16 +401,16 @@ async def capturar_fluxo_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         elif message.video:
             arquivo = message.video
             salvar_no_mongo(chat.id, "midia", ("video", arquivo.file_id, legenda))
-        await enviar_painel_principal_bv(context, chat.id, aviso_extra="✅ Mídia salva!")
+        await enviar_painel_principal_bv(context, chat.id, aviso_extra="✅ Mídia SALVA com sucesso!")
     
     elif estado == "aguardando_botoes_bv":
         texto = message.text or ""
         botoes = parsear_botoes(texto, context.bot.username)
         if botoes:
             salvar_no_mongo(chat.id, "botoes", botoes)
-            await enviar_painel_principal_bv(context, chat.id, aviso_extra="✅ Botões salvos!")
+            await enviar_painel_principal_bv(context, chat.id, aviso_extra="✅ Botões SALVOS com sucesso!")
         else:
-            await enviar_painel_principal_bv(context, chat.id, aviso_extra="⚠️ Formato inválido. Tente novamente.")
+            await enviar_painel_principal_bv(context, chat.id, aviso_extra="⚠️ Formato inválido! Tente novamente.")
 
 # ✅ === TRATA TODOS OS BOTÕES ===
 async def tratar_botoes_bemvindo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -436,4 +440,5 @@ async def tratar_botoes_bemvindo(update: Update, context: ContextTypes.DEFAULT_T
 def registrar_comandos_bv(application):
     application.add_handler(CommandHandler("bemvindo", cmd_bemvindo_painel, filters=~filters.ChatType.PRIVATE))
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS & ~filters.ChatType.PRIVATE, boas_vindas_handler))
-    application.add_handler(MessageHandler(~filters.COMMAND & (filters.TEXT | filters.PHOTO | filters.VIDEO), capturar_fluxo_admin), group=1)
+    # ✅ SEM GROUP=1 — PRIMEIRO A SER VERIFICADO
+    application.add_handler(MessageHandler(~filters.COMMAND & (filters.TEXT | filters.PHOTO | filters.VIDEO), capturar_fluxo_admin))
