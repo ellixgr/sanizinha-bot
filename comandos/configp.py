@@ -1,5 +1,5 @@
 import os
-import time  # ✅ FALTAVA ESSE IMPORT!
+import time
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler
@@ -25,7 +25,7 @@ async def tem_licenca_ativa(user_id: int) -> bool:
 
 
 # ==============================================
-# ✅ VERIFICA SE USUÁRIO É ADM EM UM CHAT
+# ✅ VERIFICA SE USUÁRIO É ADM NO CHAT
 # ==============================================
 async def e_adm_no_chat(bot, chat_id: int, user_id: int) -> bool:
     try:
@@ -36,14 +36,14 @@ async def e_adm_no_chat(bot, chat_id: int, user_id: int) -> bool:
 
 
 # ==============================================
-# ✅ LISTA GRUPOS: CADASTRO + ONDE É ADM
+# ✅ FUNÇÃO PRINCIPAL: LISTA GRUPOS COM NOME DO TELEGRAM
 # ==============================================
 async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
     bot = context.bot
 
-    # ✅ VERIFICA LICENÇA (exceto DONO)
+    # ✅ DONO passa direto, assinante precisa de licença
     eh_dono = (DONO_ID and str(user_id) == str(DONO_ID))
     if not eh_dono and not await tem_licenca_ativa(user_id):
         await query.answer("⚠️ Você precisa alugar o bot para usar essa função!", show_alert=True)
@@ -52,7 +52,7 @@ async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TY
     db = get_db()
     agora = time.time()
 
-    # ✅ PEGA GRUPOS CADASTRADOS E ATIVOS DO USUÁRIO
+    # ✅ Pega todos os grupos cadastrados do usuário
     grupos_cadastrados = list(db["grupos_autorizados"].find({
         "registrado_por": user_id,
         "ativo": True,
@@ -62,37 +62,45 @@ async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TY
     if not grupos_cadastrados:
         texto = (
             "📋 **Nenhum grupo encontrado!**\n\n"
-            "Use o comando /addgrupo dentro do seu grupo para cadastrar e poder configurá-lo aqui."
+            "Use o comando /addgrupo dentro do seu grupo/canal para cadastrar."
         )
         teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         await query.answer()
         return
 
-    # ✅ FILTRA SÓ OS QUE O USUÁRIO AINDA É ADM
+    # ✅ FILTRA + PEGA O NOME DIRETO DO TELEGRAM (não usa o do banco!)
     grupos_validos = []
     for g in grupos_cadastrados:
         chat_id = g["chat_id"]
         if await e_adm_no_chat(bot, chat_id, user_id):
-            grupos_validos.append(g)
+            try:
+                # 🔴 BUSCA O NOME ATUAL DO GRUPO NO TELEGRAM
+                chat_info = await bot.get_chat(chat_id)
+                nome_real = chat_info.title or f"Grupo {chat_id}"
+            except Exception:
+                # Se não conseguir acessar, usa o que tem no banco ou o ID
+                nome_real = g.get("nome_grupo", f"Grupo {chat_id}")
+            grupos_validos.append({"chat_id": chat_id, "nome_real": nome_real})
 
     if not grupos_validos:
         texto = (
             "⚠️ **Você não é mais administrador em nenhum grupo cadastrado.**\n\n"
-            "Verifique suas permissões nos grupos ou cadastre novos."
+            "Cadastre novos grupos com /addgrupo."
         )
         teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         await query.answer()
         return
 
-    # ✅ MONTA A LISTA COM BOTÕES
-    texto = f"⚙️ **SEUS GRUPOS ({len(grupos_validos)}) — ONDE VOCÊ É ADM:**\n\nEscolha um grupo abaixo:\n"
+    # ✅ EXIBE OS BOTÕES COM O NOME REAL DO TELEGRAM
+    qtd = len(grupos_validos)
+    texto = f"⚙️ **SEUS GRUPOS/CANAIS ({qtd}) — ONDE VOCÊ É ADM:**\n\nEscolha um para configurar:\n"
     botoes = []
 
     for grupo in grupos_validos:
         chat_id = grupo["chat_id"]
-        nome = grupo.get("nome_grupo", f"Grupo {chat_id}")
+        nome = grupo["nome_real"]  # ✅ NOME REAL DO TELEGRAM
         botoes.append([InlineKeyboardButton(f"🏢 {nome}", callback_data=f"config_grupo_{chat_id}")])
 
     botoes.append([InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")])
@@ -109,6 +117,7 @@ async def painel_config_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     dados = query.data
     user_id = update.effective_user.id
+    bot = context.bot
 
     chat_id = int(dados.replace("config_grupo_", ""))
     eh_dono = (DONO_ID and str(user_id) == str(DONO_ID))
@@ -123,7 +132,12 @@ async def painel_config_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("⚠️ Grupo não encontrado ou não pertence a você!", show_alert=True)
         return
 
-    nome_grupo = grupo.get("nome_grupo", f"Grupo {chat_id}")
+    # ✅ TAMBÉM PEGA O NOME REAL AQUI
+    try:
+        chat_info = await bot.get_chat(chat_id)
+        nome_grupo = chat_info.title or f"Grupo {chat_id}"
+    except Exception:
+        nome_grupo = grupo.get("nome_grupo", f"Grupo {chat_id}")
 
     texto = (
         f"⚙️ **CONFIGURANDO: {nome_grupo}**\n\n"
@@ -210,7 +224,7 @@ async def abrir_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================
-# ✅ CENTRAL DE BOTÕES DO CONFIGP.PY
+# ✅ CENTRAL DE BOTÕES
 # ==============================================
 async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = update.callback_query.data
