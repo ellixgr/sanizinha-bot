@@ -293,6 +293,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     logger.info(f"📥 CLIQUE: {dados}")
 
+    # ✅ BOTÕES DO JOGO DA VELHA E XADREZ — DEIXA PASSAR PARA OS HANDLERS ESPECÍFICOS
+    if dados.startswith("v_") or dados.startswith("vpos_") or dados.startswith("xadrez_"):
+        return  # ❗ NÃO FAZ NADA → deixa o handler específico do jogo tratar
+
     if dados.startswith("bv_"):
         from comandos.bemvindo import tratar_botoes_bemvindo
         await tratar_botoes_bemvindo(update, context)
@@ -364,14 +368,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         await menu_jogos_handler(update, context)
         return
+
     if dados == "jogo_xadrez":
         await query.answer("Abrindo Xadrez...")
         from comandos.jogos.xadrez import menu_xadrez_handler
         await menu_xadrez_handler(update, context)
         return
-    if dados in ["jogo_velha","jogo_memoria","jogo_dama"]:
-        await query.answer()
-        await processar_callback_jogos(update, context)
+
+    if dados == "jogo_velha":
+        await query.answer("Abrindo Jogo da Velha...")
+        from comandos.jogos.velha import menu_velha_handler
+        await menu_velha_handler(update, context)
+        return
+
+    if dados in ["jogo_memoria","jogo_dama"]:
+        await query.answer("Em breve!")
         return
 
     logger.warning(f"⚠️ Botão não registrado: {dados}")
@@ -391,6 +402,18 @@ def main():
 
     application.add_handler(TypeHandler(Update, interceptador_protecoes), group=-1)
 
+    # ✅ PRIMEIRO registra os handlers dos JOGOS → eles têm prioridade
+    from comandos.jogos.velha import setup_velha
+    from comandos.jogos.memoria import setup_memoria
+    from comandos.jogos.dama import setup_dama
+    from comandos.jogos.xadrez import setup_xadrez
+
+    setup_velha(application)
+    setup_xadrez(application)
+    setup_memoria(application)
+    setup_dama(application)
+
+    # ✅ DEPOIS registra o handler genérico
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stts", lambda u,c: cmd_stts(u, c, get_db, verificar_se_e_adm)))
     application.add_handler(CommandHandler("addgrupo", lambda u,c: cmd_addgrupo(u,c,get_db,FUSO_BR)))
@@ -410,12 +433,7 @@ def main():
     from comandos.rank import registrar_rank
     from comandos.figurinha import registrar_figurinha
     from comandos.aluguel import registrar_aluguel
-    from comandos.jogos.velha import setup_velha
-    from comandos.jogos.memoria import setup_memoria
-    from comandos.jogos.dama import setup_dama
-    from comandos.jogos.xadrez import setup_xadrez
 
-    setup_velha(application); setup_memoria(application); setup_dama(application); setup_xadrez(application)
     registrar_figurinha(application); registrar_promover(application); registrar_rank(application); registrar_marcar(application)
     registrar_citar(application); registrar_comandos_bv(application)
     registrar_ping(application); registrar_id(application); registrar_perfil(application); registrar_ban(application)
