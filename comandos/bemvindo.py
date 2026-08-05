@@ -37,30 +37,38 @@ async def is_user_admin(update: Update, chat_id: int, user_id: int, context: Con
         return False
 
 
-# ✅ CARREGA DADOS — AGORA RETORNA STATUS CORRETOS
+# ✅ CARREGA DADOS DO BANCO — AGORA 100% CONFIÁVEL
 def carregar_dados_bv(chat_id: int):
     doc = col_bemvindo.find_one({"chat_id": chat_id})
+    
+    # Se NÃO existe no banco → tudo vazio, status ativado por padrão
     if not doc:
-        return None, None, None, True  # padrão: ativado
+        return None, None, None, True
     
     texto = doc.get("texto")
     midia = doc.get("midia")
     if midia:
         midia = tuple(midia)
-    botoes_raw = doc.get("botoes")
     
+    botoes_raw = doc.get("botoes")
     botoes = None
-    if botoes_raw:
+    if botoes_raw and isinstance(botoes_raw, list) and len(botoes_raw) > 0:
         teclado_linhas = []
         for linha in botoes_raw:
+            if not isinstance(linha, list):
+                continue
             linha_botoes = []
             for b in linha:
+                if not isinstance(b, dict):
+                    continue
                 if "url" in b:
                     linha_botoes.append(InlineKeyboardButton(b["text"], url=b["url"]))
                 elif "callback_data" in b:
                     linha_botoes.append(InlineKeyboardButton(b["text"], callback_data=b["callback_data"]))
-            teclado_linhas.append(linha_botoes)
-        botoes = InlineKeyboardMarkup(teclado_linhas)
+            if linha_botoes:
+                teclado_linhas.append(linha_botoes)
+        if teclado_linhas:
+            botoes = InlineKeyboardMarkup(teclado_linhas)
     
     status = doc.get("status", True)
     return texto, midia, botoes, status
@@ -121,14 +129,15 @@ async def cmd_bemvindo_painel(update: Update, context: ContextTypes.DEFAULT_TYPE
     await enviar_painel_principal_bv(context, chat_id, message=update.message)
 
 
-# ✅ PAINEL — STATUS ✅❌ CORRIGIDOS
+# ✅ PAINEL — AGORA SEMPRE RECARREGA DO BANCO DE NOVO
 async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message=None, query=None, aviso_extra: str = None):
+    # ✅ SEMPRE recarrega do banco — NÃO USA CACHE NENHUM!
     texto, midia, botoes, status_atual = carregar_dados_bv(chat_id)
     
-    # ✅ CALCULA STATUS DIRETAMENTE — SEM BUG
-    tem_texto = texto is not None and texto != ""
-    tem_midia = midia is not None
-    tem_botoes = botoes is not None
+    # ✅ VERIFICAÇÃO 100% CORRETA — SEM TROCAR ✅❌
+    tem_texto = bool(texto and texto.strip() != "")
+    tem_midia = bool(midia is not None)
+    tem_botoes = bool(botoes is not None)
     
     txt_status = "✅" if tem_texto else "❌"
     mid_status = "✅" if tem_midia else "❌"
@@ -145,7 +154,6 @@ async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id
 
     botao_status = InlineKeyboardButton("🔴 Desativar", callback_data="bv_toggle_status") if status_atual else InlineKeyboardButton("🟢 Ativar", callback_data="bv_toggle_status")
     
-    # ✅ BOTÃO VOLTAR AGORA VAI PRO MENU ADM, NÃO FICA NESSE PAINEL!
     teclado = InlineKeyboardMarkup([
         [InlineKeyboardButton("📄 Texto", callback_data="bv_edit_texto"), InlineKeyboardButton("👀 Ver", callback_data="bv_ver_texto")],
         [InlineKeyboardButton("✨ Mensagens Prontas", callback_data="bv_mensagens_prontas")],
@@ -153,9 +161,10 @@ async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id
         [InlineKeyboardButton("🔲 Botões", callback_data="bv_edit_botoes"), InlineKeyboardButton("👀 Ver", callback_data="bv_ver_botoes")],
         [botao_status],
         [InlineKeyboardButton("👀 Visualização completa", callback_data="bv_ver_completa")],
-        [InlineKeyboardButton("🔙 Voltar", callback_data="menu_adm")]  # ✅ VOLTA PRO MENU ADM!
+        [InlineKeyboardButton("🔙 Voltar", callback_data="menu_adm")]
     ])
 
+    # ✅ SE NÃO CONSEGUIR EDITAR → APAGA E ENVIA NOVA SEMPRE
     if query and query.message:
         try:
             await query.message.edit_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
@@ -313,7 +322,7 @@ async def cb_edit_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 
-# ✅ === VOLTAR AO PAINEL PRINCIPAL (usado pelas telas de ver/excluir) ===
+# ✅ === VOLTAR AO PAINEL PRINCIPAL — SEMPRE RECARREGA DO BANCO ===
 async def cb_voltar_painel_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -323,6 +332,7 @@ async def cb_voltar_painel_bv(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
     ESTADOS_FLUXO.pop((chat_id, user_id), None)
+    # ✅ SEMPRE recarrega do banco de novo — dados FRESCOS!
     await enviar_painel_principal_bv(context, chat_id, query=query)
 
 
@@ -338,7 +348,7 @@ async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     texto_salvo, _, _, _ = carregar_dados_bv(chat_id)
     
-    if not texto_salvo:
+    if not texto_salvo or texto_salvo.strip() == "":
         teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_voltar_painel")]])
         await query.message.edit_text("❌ Nenhum texto salvo.", reply_markup=teclado, parse_mode="Markdown")
         return
@@ -452,6 +462,7 @@ async def cb_excluir_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
     excluir_campo_bv(chat_id, "midia")
+    # ✅ APAGOU A MENSAGEM ANTES → ENVIA NOVA DO BANCO ATUALIZADO
     await enviar_painel_principal_bv(context, chat_id, aviso_extra="✅ **MÍDIA APAGADA!**")
 
 
@@ -651,6 +662,8 @@ async def tratar_botoes_bemvindo(update: Update, context: ContextTypes.DEFAULT_T
         await cb_ver_botoes_bv(update, context)
     elif dados == "bv_ver_completa":
         await cb_ver_completa_bv(update, context)
+    elif dados == "bv_cancelar":
+        await cb_voltar_painel_bv(update, context)
     else:
         await update.callback_query.answer("❌ Função não encontrada!", show_alert=True)
 
