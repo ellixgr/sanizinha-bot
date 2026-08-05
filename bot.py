@@ -82,22 +82,19 @@ async def verificar_se_e_adm(update: Update, context: ContextTypes.DEFAULT_TYPE,
         except: pass
     return False
 
-# ✅ === INTERCEPTADOR CORRIGIDO — NÃO BLOQUEIA QUEM ESTÁ SALVANDO BEM-VINDO ===
 async def interceptador_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.effective_user or not update.effective_chat:
         return
 
-    # ✅ IGNORA SE USUÁRIO ESTÁ NO MEIO DE SALVAR BEM-VINDO!
     uid = update.effective_user.id
     chat_id = update.effective_chat.id
     try:
         from comandos.bemvindo import ESTADOS_FLUXO
         if (chat_id, uid) in ESTADOS_FLUXO:
-            return  # ✅ PASSA DIREITO, NÃO BLOQUEIA!
+            return
     except:
         pass
 
-    # ✅ IGNORA TUDO QUE COMEÇA COM / → COMANDOS NÃO SÃO APAGADOS!
     texto = update.message.text or update.message.caption or ""
     if texto.startswith("/"):
         return
@@ -141,7 +138,6 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
     await context.bot.leave_chat(chat.id)
 
-# ✅ MENU ADM
 async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -158,7 +154,6 @@ async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ MENU MEMBROS
 async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -170,7 +165,6 @@ async def menu_membros_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     ])
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ TRATA BOTÕES DO PAINEL ADM
 async def tratar_botoes_adm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     dados = query.data
@@ -299,7 +293,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ === BOTÕES DO BEM-VINDO — TODOS FUNCIONANDO ===
     if dados.startswith("bv_"):
         from comandos.bemvindo import tratar_botoes_bemvindo
         await tratar_botoes_bemvindo(update, context)
@@ -396,7 +389,6 @@ def main():
 
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    # ✅ INTERCEPTADOR — MAS AGORA NÃO BLOQUEIA QUEM ESTÁ SALVANDO BEM-VINDO
     application.add_handler(TypeHandler(Update, interceptador_protecoes), group=-1)
 
     application.add_handler(CommandHandler("start", start))
