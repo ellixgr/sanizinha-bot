@@ -115,11 +115,12 @@ async def tratar_botoes_memoria(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     if dados == "mem_modo_ia":
+        await query.answer("✅ Iniciando contra a Máquina...")
         await iniciar_partida_ia(query, uid, update.effective_user.first_name, chat_id)
         return
 
     if dados == "mem_modo_pvp":
-        await query.answer("ℹ️ Use `/memory @jogador` ou responda alguém!")
+        await query.answer("ℹ️ Use o comando `/memory @jogador` ou responda uma mensagem de alguém com `/memory` para desafiar!", show_alert=True)
         return
 
     if dados.startswith("mem_pos_"):
@@ -187,12 +188,15 @@ async def iniciar_partida_ia(query, jog_id, jog_nome, chat_id):
     icones = ICONS[:TOTAL_PARES] * 2
     random.shuffle(icones)
     cartas = ["❓"] * 6
-    jogos_db.update_one({"chat_id": chat_id}, {"$set": {
+    dados_partida = {
         "modo": "ia", "ativo": True, "icones": icones, "cartas": cartas,
         "selecionada": None, "jogador1_id": jog_id, "jogador1_nome": jog_nome,
-        "vez": jog_id, "vez_nome": jog_nome, "pontos_vez": 0, "total_pares": TOTAL_PARES
-    }})
-    await mostrar_painel(query, jogos_db.find_one({"chat_id": chat_id}), "Sua vez! Escolha uma carta.")
+        "vez": jog_id, "vez_nome": jog_nome, "pontos_vez": 0, "pontos_ia": 0,
+        "total_pares": TOTAL_PARES
+    }
+    jogos_db.update_one({"chat_id": chat_id}, {"$set": dados_partida})
+    partida = jogos_db.find_one({"chat_id": chat_id})
+    await mostrar_painel(query, partida, "Sua vez! Escolha uma carta.")
 
 
 async def iniciar_partida_pvp(query, j1_id, j1_nome, j2_id, j2_nome, chat_id):
@@ -203,9 +207,11 @@ async def iniciar_partida_pvp(query, j1_id, j1_nome, j2_id, j2_nome, chat_id):
         "modo": "pvp", "ativo": True, "icones": icones, "cartas": cartas,
         "selecionada": None, "jogador1_id": j1_id, "jogador1_nome": j1_nome,
         "jogador2_id": j2_id, "jogador2_nome": j2_nome,
-        "vez": j1_id, "vez_nome": j1_nome, "pontos_vez": 0, "pontos_outro": 0, "total_pares": TOTAL_PARES
+        "vez": j1_id, "vez_nome": j1_nome,
+        "pontos_vez": 0, "pontos_outro": 0, "total_pares": TOTAL_PARES
     }})
-    await mostrar_painel(query, jogos_db.find_one({"chat_id": chat_id}), f"🎮 Vez de {j1_nome}!")
+    partida = jogos_db.find_one({"chat_id": chat_id})
+    await mostrar_painel(query, partida, f"🎮 Vez de {j1_nome}!")
 
 
 async def jogada_ia(query, partida):
@@ -235,7 +241,7 @@ async def jogada_ia(query, partida):
         cartas[b] = "❓"
         jogos_db.update_one({"chat_id": partida["chat_id"]}, {"$set": {
             "cartas": cartas, "selecionada": None, "vez": partida["jogador1_id"],
-            "vez_nome": partida["jogador1_nome"], "pontos_vez": partida.get("pontos_jogador", 0)
+            "vez_nome": partida["jogador1_nome"], "pontos_vez": partida.get("pontos_vez", 0)
         }})
         await mostrar_painel(query, partida, "🔄 Sua vez!")
 
