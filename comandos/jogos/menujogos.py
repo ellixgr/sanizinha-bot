@@ -1,11 +1,9 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-# ✅ Imports corretos
+# ✅ Imports corretos — só os handlers
 from comandos.jogos.xadrez import menu_xadrez_handler
 from comandos.jogos.velha import menu_velha_handler
-from comandos.jogos.memoria import iniciar_memoria  # ✅ Adicionado
-from comandos.jogos.minado import iniciar_minado     # ✅ Adicionado
 
 async def menu_jogos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -43,6 +41,7 @@ async def processar_callback_jogos(update: Update, context: ContextTypes.DEFAULT
 
     if dados == "jogo_memoria":
         await query.answer("Abrindo Memória...")
+        from comandos.jogos.memoria import iniciar_memoria
         await iniciar_memoria(update, context)
         return
 
