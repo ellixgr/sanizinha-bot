@@ -124,7 +124,7 @@ async def tratar_botoes_velha(update: Update, context):
     user_name = user.first_name
 
     if data == "v_infopvp":
-        await query.answer("Para jogar PvP com amigos use /velha @usuario ou marque alguém com /velha", show_alert=True)
+        await query.answer("Para jogar PvP com amigos use /velha @usuario ou responda alguém", show_alert=True)
         return
 
     if data == "v_modoia":
@@ -246,11 +246,13 @@ async def tratar_botoes_velha(update: Update, context):
                 {"$set": {
                     "tabuleiro": tabuleiro,
                     "turno": user_id,
+                    "X": user_id,
+                    "O": "IA",
                     "status": "ativo",
                     "voto_revanche": []
                 }}
             )
-            await query.answer()
+            await query.answer("✅ Novo jogo iniciado!")
             await atualizar_tabuleiro(query, tabuleiro, "🎮 Novo jogo contra a IA iniciado! Sua vez (❌).")
             return
             
@@ -293,8 +295,7 @@ async def tratar_botoes_velha(update: Update, context):
                 nome_comeca = desafiante_nome if novo_x == desafiante_id else desafiado_nome
                 await atualizar_tabuleiro(query, tabuleiro, f"⚔️ Revanche iniciada! Vez de {nome_comeca} (❌).")
             else:
-                await query.answer("✅ Voto registrado! Aguardando o oponente clicar em 'Jogar de Novo'.")
-                
+                await query.answer("✅ Voto registrado! Aguardando o oponente.")
                 falta_id = desafiado_id if user_id == desafiante_id else desafiante_id
                 nome_falta = desafiado_nome if user_id == desafiante_id else desafiante_nome
                 nome_votou = desafiante_nome if user_id == desafiante_id else desafiado_nome
@@ -307,7 +308,7 @@ async def tratar_botoes_velha(update: Update, context):
                 ])
                 
                 await query.message.edit_text(
-                    f"{msg_base}\n\n⏳ O usuário **{nome_votou}** quer jogar de novo! O usuário **{nome_falta}** tem que aceitar jogar de novo tbm.",
+                    f"{msg_base}\n\n⏳ O usuário **{nome_votou}** quer jogar de novo! O usuário **{nome_falta}** tem que aceitar.",
                     reply_markup=teclado_revanche,
                     parse_mode="Markdown"
                 )
@@ -323,7 +324,7 @@ async def jogada_velha(update: Update, context):
     estado = jogos_db.find_one({"chat_id": chat_id})
     
     if not estado or estado.get("status") != "ativo":
-        await query.answer("⚠️ Jogo expirado ou não encontrado neste grupo. Inicie um novo!", show_alert=True)
+        await query.answer("⚠️ Jogo expirado ou não encontrado. Inicie um novo!", show_alert=True)
         return
 
     modo = estado.get("modo")
@@ -361,7 +362,7 @@ async def jogada_velha(update: Update, context):
 
     elif modo == "ia":
         if user_id != estado.get("X"):
-            await query.answer("❌ Você não está jogando nesta partida contra a IA!", show_alert=True)
+            await query.answer("❌ Você não está jogando nesta partida!", show_alert=True)
             return
         if tabuleiro[pos] != " ":
             await query.answer("⚠️ Este espaço já está ocupado!", show_alert=True)
@@ -372,7 +373,6 @@ async def jogada_velha(update: Update, context):
         if vencedor or " " not in tabuleiro:
             await query.answer()
             await finalizar_jogo(query, tabuleiro, vencedor, "Você" if vencedor == "❌" else "Máquina", modo="ia")
-            jogos_db.delete_one({"chat_id": chat_id})
             return
 
         vazias = [i for i, x in enumerate(tabuleiro) if x == " "]
@@ -384,7 +384,6 @@ async def jogada_velha(update: Update, context):
         if vencedor or " " not in tabuleiro:
             await query.answer()
             await finalizar_jogo(query, tabuleiro, vencedor, "Você" if vencedor == "❌" else "Máquina", modo="ia")
-            jogos_db.delete_one({"chat_id": chat_id})
             return
 
         jogos_db.update_one({"chat_id": chat_id}, {"$set": {"tabuleiro": tabuleiro}})
