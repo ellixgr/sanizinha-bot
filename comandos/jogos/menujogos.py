@@ -1,8 +1,9 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-# ✅ IMPORTA A FUNÇÃO DO MENU DO XADREZ
+# ✅ IMPORTA AS FUNÇÕES DOS JOGOS
 from comandos.jogos.xadrez import menu_xadrez_handler
+from comandos.jogos.velha import menu_velha_handler  # ✅ FALTAVA ESSA IMPORTAÇÃO
 
 async def menu_jogos_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -30,11 +31,12 @@ async def processar_callback_jogos(update: Update, context: ContextTypes.DEFAULT
         return
 
     if data == "jogo_velha":
-        await query.answer("Jogo da Velha em breve!")
+        await query.answer("Abrindo Jogo da Velha...")  # ✅ Mensagem de carregamento
+        await menu_velha_handler(update, context)       # ✅ CHAMA O MENU DO VELHA
     elif data == "jogo_memoria":
         await query.answer("Jogo da Memória em breve!")
     elif data == "jogo_xadrez":
         await query.answer("Abrindo Xadrez...")
-        await menu_xadrez_handler(update, context)
+        await menu_xadrez_handler(update, context)       # ✅ JÁ ESTAVA CERTO
     elif data == "jogo_dama":
         await query.answer("Jogo de Damas em breve!")
