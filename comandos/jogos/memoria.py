@@ -8,15 +8,15 @@ db = MongoClient(MONGO_URI, serverSelectionTimeoutMS=1000, connectTimeoutMS=1000
 jogos_db = db["jogo_memoria"]
 
 ICONS = ["🍎", "🍌", "🍇", "🍓", "🍊", "🍑"]
-TOTAL_PARES = 3  # 6 cartas no total
+TOTAL_PARES = 3
 
 def setup_memoria(app):
     app.add_handler(CallbackQueryHandler(iniciar_memoria, pattern="^jogo_memoria$"))
     app.add_handler(CallbackQueryHandler(tratar_botoes_memoria, pattern="^mem_"))
     app.add_handler(CommandHandler("memory", cmd_desafio_memoria))
 
+
 async def cmd_desafio_memoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando: /memory @usuario ou responde mensagem de alguém"""
     chat = update.effective_chat
     remetente = update.effective_user
     alvo = None
@@ -25,7 +25,6 @@ async def cmd_desafio_memoria(update: Update, context: ContextTypes.DEFAULT_TYPE
         alvo = update.message.reply_to_message.from_user
     elif context.args:
         alvo_nome = context.args[0].replace("@", "")
-        # Busca por username no chat — simplificado, o bot precisa estar no mesmo grupo
         membros = await context.bot.get_chat_administrators(chat.id)
         for m in membros:
             if m.user.username and m.user.username.lower() == alvo_nome.lower():
@@ -35,43 +34,30 @@ async def cmd_desafio_memoria(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text("⚠️ Usuário não encontrado no chat!")
             return
     else:
-        await update.message.reply_text("ℹ️ Use: `/memory @jogador` ou responda a mensagem de alguém com `/memory`")
+        await update.message.reply_text("ℹ️ Use: `/memory @jogador` ou responda alguém")
         return
 
     if alvo.id == remetente.id:
-        await update.message.reply_text("⚠️ Você não pode desafiar a si mesmo!")
+        await update.message.reply_text("⚠️ Não pode desafiar a si mesmo!")
         return
 
-    # Verifica se já tem jogo ativo neste chat
     if jogos_db.find_one({"chat_id": chat.id, "ativo": True}):
-        await update.message.reply_text("⚠️ Já existe uma partida em andamento neste chat!")
+        await update.message.reply_text("⚠️ Já existe partida em andamento!")
         return
 
-    # Salva desafio pendente
-    jogos_db.update_one(
-        {"chat_id": chat.id},
-        {"$set": {
-            "tipo": "desafio_pendente",
-            "desafiante_id": remetente.id,
-            "desafiante_nome": remetente.first_name,
-            "desafiado_id": alvo.id,
-            "desafiado_nome": alvo.first_name,
-            "ativo": True
-        }},
-        upsert=True
-    )
+    jogos_db.update_one({"chat_id": chat.id}, {"$set": {
+        "tipo": "desafio_pendente", "desafiante_id": remetente.id,
+        "desafiante_nome": remetente.first_name, "desafiado_id": alvo.id,
+        "desafiado_nome": alvo.first_name, "ativo": True
+    }}, upsert=True)
 
     botoes = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Aceitar Desafio", callback_data="mem_aceitar_pvp")],
         [InlineKeyboardButton("❌ Recusar", callback_data="mem_recusar_pvp")]
     ])
-
     await update.message.reply_text(
-        f"🎮 **DESAFIO DE MEMÓRIA** 🎮\n\n"
-        f"👤 {remetente.first_name} te desafiou para um jogo de Memória!\n"
-        f"Você aceita?",
-        reply_markup=botoes,
-        parse_mode="Markdown"
+        f"🎮 **DESAFIO DE MEMÓRIA** 🎮\n\n{remetente.first_name} te desafiou!",
+        reply_markup=botoes, parse_mode="Markdown"
     )
 
 
@@ -81,16 +67,15 @@ async def iniciar_memoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     uid = update.effective_user.id
 
-    # 🔒 BLOQUEIO: Se já tem jogo ativo, só os participantes podem interagir
     partida = jogos_db.find_one({"chat_id": chat_id, "ativo": True})
     if partida:
-        participantes = [partida.get("jogador1_id"), partida.get("jogador2_id"), partida.get("desafiante_id"), partida.get("desafiado_id")]
+        participantes = [partida.get("jogador1_id"), partida.get("jogador2_id"),
+                         partida.get("desafiante_id"), partida.get("desafiado_id")]
         if uid not in participantes:
-            await query.answer("⚠️ Já existe uma partida rolando! Aguarde terminar.", show_alert=True)
+            await query.answer("⚠️ Partida em andamento!", show_alert=True)
             return
-        # Se é desafio pendente, deixa o desafiado responder
         if partida.get("tipo") == "desafio_pendente" and uid == partida.get("desafiante_id"):
-            await query.answer("⚠️ Aguarde o jogador aceitar o desafio!", show_alert=True)
+            await query.answer("⚠️ Aguarde o jogador aceitar!", show_alert=True)
             return
 
     teclado = InlineKeyboardMarkup([
@@ -99,9 +84,8 @@ async def iniciar_memoria(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 Voltar", callback_data="menu_jogos_atalho")]
     ])
     await query.message.edit_text(
-        "🧠 **Jogo da Memória (Encontre os pares)**\n\nEscolha o modo de jogo:",
-        reply_markup=teclado,
-        parse_mode="Markdown"
+        "🧠 **Jogo da Memória**\n\nEncontre os pares! Escolha o modo:",
+        reply_markup=teclado, parse_mode="Markdown"
     )
 
 
@@ -111,50 +95,41 @@ async def tratar_botoes_memoria(update: Update, context: ContextTypes.DEFAULT_TY
     chat_id = query.message.chat_id
     uid = update.effective_user.id
 
-    # ─────────── ACEITAR / RECUSAR DESAFIO PvP ───────────
     if dados == "mem_aceitar_pvp":
         partida = jogos_db.find_one({"chat_id": chat_id, "ativo": True, "tipo": "desafio_pendente"})
         if not partida or uid != partida["desafiado_id"]:
-            await query.answer("⚠️ Não é para você!", show_alert=True)
+            await query.answer("⚠️ Não é pra você!", show_alert=True)
             return
-        await query.answer("✅ Desafio aceito! Boa sorte!")
+        await query.answer("✅ Desafio aceito!")
         await iniciar_partida_pvp(query, partida["desafiante_id"], partida["desafiante_nome"],
                                    partida["desafiado_id"], partida["desafiado_nome"], chat_id)
         return
 
     if dados == "mem_recusar_pvp":
         partida = jogos_db.find_one({"chat_id": chat_id, "ativo": True, "tipo": "desafio_pendente"})
-        if not partida or uid != partida["desafiado_id"]:
-            await query.answer("⚠️ Não é para você!", show_alert=True)
-            return
-        await query.answer("❌ Desafio recusado.")
+        if not partida or uid != partida["desafiado_id"]: return
+        await query.answer("❌ Recusado.")
         jogos_db.delete_one({"chat_id": chat_id})
-        await query.message.edit_text(
-            f"❌ {partida['desafiado_nome']} recusou o desafio.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_jogos_atalho")]])
-        )
+        await query.message.edit_text(f"❌ {partida['desafiado_nome']} recusou.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_jogos_atalho")]]))
         return
 
-    # ─────────── ESCOLHA DE MODO ───────────
     if dados == "mem_modo_ia":
         await iniciar_partida_ia(query, uid, update.effective_user.first_name, chat_id)
         return
 
     if dados == "mem_modo_pvp":
-        await query.answer("ℹ️ Use `/memory @jogador` ou responda alguém para desafiar!")
+        await query.answer("ℹ️ Use `/memory @jogador` ou responda alguém!")
         return
 
-    # ─────────── JOGADA: abrir carta ───────────
     if dados.startswith("mem_pos_"):
         pos = int(dados.split("_")[2])
         partida = jogos_db.find_one({"chat_id": chat_id, "ativo": True})
         if not partida:
-            await query.answer("⚠️ Inicie um jogo primeiro!", show_alert=True)
+            await query.answer("⚠️ Inicie um jogo!", show_alert=True)
             return
 
-        # 🔒 Controle de VEZ — só quem é a vez pode jogar
-        vez_atual = partida.get("vez")
-        if partida.get("modo") == "pvp" and uid != vez_atual:
+        if partida.get("modo") == "pvp" and uid != partida.get("vez"):
             await query.answer("⚠️ Não é sua vez!", show_alert=True)
             return
         if partida.get("modo") == "ia" and uid != partida.get("jogador1_id"):
@@ -175,7 +150,6 @@ async def tratar_botoes_memoria(update: Update, context: ContextTypes.DEFAULT_TY
             await mostrar_painel(query, partida, "🔍 Escolha a segunda carta...")
             return
 
-        # Conferir par
         acertou = (icones[primeira] == icones[pos])
         jogador_vez = partida["vez_nome"]
 
@@ -183,51 +157,40 @@ async def tratar_botoes_memoria(update: Update, context: ContextTypes.DEFAULT_TY
             pontos = partida.get("pontos_vez", 0) + 1
             max_pares = partida.get("total_pares", TOTAL_PARES)
             jogos_db.update_one({"chat_id": chat_id}, {"$set": {
-                "cartas": cartas, "selecionada": None,
-                "pontos_vez": pontos
+                "cartas": cartas, "selecionada": None, "pontos_vez": pontos
             }})
-
             if pontos >= max_pares:
                 await finalizar_jogo(query, partida, vencedor=jogador_vez)
                 return
-
             await mostrar_painel(query, partida, f"✅ {jogador_vez} ACERTOU! Jogue de novo!")
         else:
-            # Errou → fecha cartas e passa a vez
             cartas[primeira] = "❓"
             cartas[pos] = "❓"
             await mostrar_painel(query, partida, f"❌ {jogador_vez} ERROU! Passando a vez...")
-
-            # Passa a vez
             if partida["modo"] == "ia":
                 await asyncio.sleep(1.2)
                 await jogada_ia(query, partida)
                 return
-            else:  # PvP
-                novo_vez_id = partida["jogador2_id"] if vez_atual == partida["jogador1_id"] else partida["jogador1_id"]
-                novo_vez_nome = partida["jogador2_nome"] if vez_atual == partida["jogador1_id"] else partida["jogador1_nome"]
+            else:
+                novo_vez_id = partida["jogador2_id"] if partida["vez"] == partida["jogador1_id"] else partida["jogador1_id"]
+                novo_vez_nome = partida["jogador2_nome"] if partida["vez"] == partida["jogador1_id"] else partida["jogador1_nome"]
                 jogos_db.update_one({"chat_id": chat_id}, {"$set": {
-                    "cartas": cartas, "selecionada": None,
-                    "vez": novo_vez_id, "vez_nome": novo_vez_nome,
-                    "pontos_vez": partida.get("pontos_outro", 0)
+                    "cartas": cartas, "selecionada": None, "vez": novo_vez_id,
+                    "vez_nome": novo_vez_nome, "pontos_vez": partida.get("pontos_outro", 0)
                 }})
                 await asyncio.sleep(1)
                 await mostrar_painel(query, partida, f"🔄 Vez de {novo_vez_nome}!")
         return
 
 
-# ─────────── FUNÇÕES AUXILIARES ───────────
-
 async def iniciar_partida_ia(query, jog_id, jog_nome, chat_id):
     icones = ICONS[:TOTAL_PARES] * 2
     random.shuffle(icones)
     cartas = ["❓"] * 6
     jogos_db.update_one({"chat_id": chat_id}, {"$set": {
-        "modo": "ia", "ativo": True,
-        "icones": icones, "cartas": cartas, "selecionada": None,
-        "jogador1_id": jog_id, "jogador1_nome": jog_nome,
-        "vez": jog_id, "vez_nome": jog_nome, "pontos_vez": 0,
-        "total_pares": TOTAL_PARES
+        "modo": "ia", "ativo": True, "icones": icones, "cartas": cartas,
+        "selecionada": None, "jogador1_id": jog_id, "jogador1_nome": jog_nome,
+        "vez": jog_id, "vez_nome": jog_nome, "pontos_vez": 0, "total_pares": TOTAL_PARES
     }})
     await mostrar_painel(query, jogos_db.find_one({"chat_id": chat_id}), "Sua vez! Escolha uma carta.")
 
@@ -237,13 +200,10 @@ async def iniciar_partida_pvp(query, j1_id, j1_nome, j2_id, j2_nome, chat_id):
     random.shuffle(icones)
     cartas = ["❓"] * 6
     jogos_db.update_one({"chat_id": chat_id}, {"$set": {
-        "modo": "pvp", "ativo": True,
-        "icones": icones, "cartas": cartas, "selecionada": None,
-        "jogador1_id": j1_id, "jogador1_nome": j1_nome,
+        "modo": "pvp", "ativo": True, "icones": icones, "cartas": cartas,
+        "selecionada": None, "jogador1_id": j1_id, "jogador1_nome": j1_nome,
         "jogador2_id": j2_id, "jogador2_nome": j2_nome,
-        "vez": j1_id, "vez_nome": j1_nome,
-        "pontos_vez": 0, "pontos_outro": 0,
-        "total_pares": TOTAL_PARES
+        "vez": j1_id, "vez_nome": j1_nome, "pontos_vez": 0, "pontos_outro": 0, "total_pares": TOTAL_PARES
     }})
     await mostrar_painel(query, jogos_db.find_one({"chat_id": chat_id}), f"🎮 Vez de {j1_nome}!")
 
@@ -254,7 +214,6 @@ async def jogada_ia(query, partida):
     desconhecidas = [i for i,c in enumerate(cartas) if c == "❓"]
     if len(desconhecidas) < 2: return
 
-    # IA escolhe duas cartas aleatórias
     a, b = random.sample(desconhecidas, 2)
     cartas[a] = icones[a]
     cartas[b] = icones[b]
@@ -275,8 +234,8 @@ async def jogada_ia(query, partida):
         cartas[a] = "❓"
         cartas[b] = "❓"
         jogos_db.update_one({"chat_id": partida["chat_id"]}, {"$set": {
-            "cartas": cartas, "selecionada": None, "vez": partida["jogador1_id"], "vez_nome": partida["jogador1_nome"],
-            "pontos_vez": partida.get("pontos_jogador", 0)
+            "cartas": cartas, "selecionada": None, "vez": partida["jogador1_id"],
+            "vez_nome": partida["jogador1_nome"], "pontos_vez": partida.get("pontos_jogador", 0)
         }})
         await mostrar_painel(query, partida, "🔄 Sua vez!")
 
@@ -292,7 +251,6 @@ async def mostrar_painel(query, partida, texto):
          InlineKeyboardButton(cartas[5], callback_data="mem_pos_5")],
         [InlineKeyboardButton("❌ Sair", callback_data="menu_jogos_atalho")]
     ]
-    # Placar
     if partida["modo"] == "ia":
         pts_j = partida.get("pontos_vez", 0)
         pts_m = partida.get("pontos_ia", 0)
@@ -304,8 +262,7 @@ async def mostrar_painel(query, partida, texto):
 
     await query.message.edit_text(
         f"🧠 **Jogo da Memória**\n{placar}\n\n{texto}",
-        reply_markup=InlineKeyboardMarkup(botoes),
-        parse_mode="Markdown"
+        reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown"
     )
 
 
@@ -314,6 +271,5 @@ async def finalizar_jogo(query, partida, vencedor):
     botoes = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_jogos_atalho")]])
     await query.message.edit_text(
         f"🏆 **FIM DE JOGO!**\n\nVencedor: {vencedor} 🎉",
-        reply_markup=botoes,
-        parse_mode="Markdown"
+        reply_markup=botoes, parse_mode="Markdown"
     )
