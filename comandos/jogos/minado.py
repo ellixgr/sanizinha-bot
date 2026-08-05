@@ -125,12 +125,15 @@ async def tratar_botoes_minado(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.answer("⚠️ Inicie um jogo!", show_alert=True)
             return
 
-        if partida["modo"] == "pvp" and uid != partida["vez"]:
-            await query.answer("⚠️ Não é sua vez!", show_alert=True)
-            return
-        if partida["modo"] == "ia" and uid != partida["p1_id"]:
-            await query.answer("⚠️ Não é sua vez!", show_alert=True)
-            return
+        # ✅ CORRIGIDO: Verifica jogador corretamente
+        if partida["modo"] == "pvp":
+            if uid != partida["vez"]:
+                await query.answer("⚠️ Não é sua vez!", show_alert=True)
+                return
+        else:  # modo IA
+            if uid != partida["p1_id"]:
+                await query.answer("⚠️ Não é sua partida!", show_alert=True)
+                return
 
         if partida["aberto"][pos] != "❔":
             await query.answer("⚠️ Já foi!", show_alert=True)
