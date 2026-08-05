@@ -1,4 +1,5 @@
 import os
+import time  # ✅ FALTAVA ESSE IMPORT!
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CallbackQueryHandler
@@ -24,39 +25,78 @@ async def tem_licenca_ativa(user_id: int) -> bool:
 
 
 # ==============================================
-# ✅ LISTA OS GRUPOS QUE O USUÁRIO CADASTROU
+# ✅ VERIFICA SE USUÁRIO É ADM EM UM CHAT
+# ==============================================
+async def e_adm_no_chat(bot, chat_id: int, user_id: int) -> bool:
+    try:
+        membro = await bot.get_chat_member(chat_id, user_id)
+        return membro.status in ["administrator", "creator"]
+    except Exception:
+        return False
+
+
+# ==============================================
+# ✅ LISTA GRUPOS: CADASTRO + ONDE É ADM
 # ==============================================
 async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
+    bot = context.bot
 
-    if not await tem_licenca_ativa(user_id):
+    # ✅ VERIFICA LICENÇA (exceto DONO)
+    eh_dono = (DONO_ID and str(user_id) == str(DONO_ID))
+    if not eh_dono and not await tem_licenca_ativa(user_id):
         await query.answer("⚠️ Você precisa alugar o bot para usar essa função!", show_alert=True)
         return
 
     db = get_db()
-    # Pega grupos cadastrados pelo usuário
-    grupos = list(db["grupos_autorizados"].find({"registrado_por": user_id, "ativo": True}))
+    agora = time.time()
 
-    if not grupos:
+    # ✅ PEGA GRUPOS CADASTRADOS E ATIVOS DO USUÁRIO
+    grupos_cadastrados = list(db["grupos_autorizados"].find({
+        "registrado_por": user_id,
+        "ativo": True,
+        "expira_em": {"$gt": agora}
+    }))
+
+    if not grupos_cadastrados:
         texto = (
             "📋 **Nenhum grupo encontrado!**\n\n"
             "Use o comando /addgrupo dentro do seu grupo para cadastrar e poder configurá-lo aqui."
         )
         teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+        await query.answer()
         return
 
-    texto = "⚙️ **SEUS GRUPOS CADASTRADOS:**\n\nEscolha um grupo abaixo para configurar:\n"
-    botoes_grupos = []
+    # ✅ FILTRA SÓ OS QUE O USUÁRIO AINDA É ADM
+    grupos_validos = []
+    for g in grupos_cadastrados:
+        chat_id = g["chat_id"]
+        if await e_adm_no_chat(bot, chat_id, user_id):
+            grupos_validos.append(g)
 
-    for grupo in grupos:
+    if not grupos_validos:
+        texto = (
+            "⚠️ **Você não é mais administrador em nenhum grupo cadastrado.**\n\n"
+            "Verifique suas permissões nos grupos ou cadastre novos."
+        )
+        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
+        await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+        await query.answer()
+        return
+
+    # ✅ MONTA A LISTA COM BOTÕES
+    texto = f"⚙️ **SEUS GRUPOS ({len(grupos_validos)}) — ONDE VOCÊ É ADM:**\n\nEscolha um grupo abaixo:\n"
+    botoes = []
+
+    for grupo in grupos_validos:
         chat_id = grupo["chat_id"]
         nome = grupo.get("nome_grupo", f"Grupo {chat_id}")
-        botoes_grupos.append([InlineKeyboardButton(f"🏢 {nome}", callback_data=f"config_grupo_{chat_id}")])
+        botoes.append([InlineKeyboardButton(f"🏢 {nome}", callback_data=f"config_grupo_{chat_id}")])
 
-    botoes_grupos.append([InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")])
-    teclado = InlineKeyboardMarkup(botoes_grupos)
+    botoes.append([InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")])
+    teclado = InlineKeyboardMarkup(botoes)
 
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
     await query.answer()
@@ -71,8 +111,9 @@ async def painel_config_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = update.effective_user.id
 
     chat_id = int(dados.replace("config_grupo_", ""))
+    eh_dono = (DONO_ID and str(user_id) == str(DONO_ID))
 
-    if not await tem_licenca_ativa(user_id):
+    if not eh_dono and not await tem_licenca_ativa(user_id):
         await query.answer("⚠️ Licença necessária!", show_alert=True)
         return
 
@@ -190,7 +231,7 @@ async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TY
         await abrir_protecoes(update, context)
         return
 
-    # Toggle proteções no privado
+    # ✅ ALTERNAR PROTEÇÕES
     if dados.startswith("toggle_priv_"):
         partes = dados.replace("toggle_priv_", "").rsplit("_", 1)
         tipo = partes[0]
@@ -202,6 +243,7 @@ async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TY
         await abrir_protecoes(update, context)
         return
 
+    # ✅ ESCOLHER PUNIÇÃO
     if dados.startswith("menu_punicao_priv_"):
         chat_id = int(dados.replace("menu_punicao_priv_", ""))
         texto = "⚖️ **ESCOLHA A PUNIÇÃO:**"
@@ -214,6 +256,7 @@ async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TY
         await update.callback_query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
+    # ✅ DEFINIR PUNIÇÃO
     if dados.startswith("def_pun_"):
         partes = dados.replace("def_pun_", "").rsplit("_", 1)
         tipo = partes[0]
@@ -221,11 +264,18 @@ async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TY
         mapa = {"aviso": "aviso_ban", "remover": "remover", "mutar": "silenciar"}
         acao = mapa.get(tipo, "aviso_ban")
         db = get_db()
-        db["configuracoes_grupo"].update_one({"chat_id": chat_id}, {"$set": {"acao_padrao": acao, "tempo_mute_padrao": 5}}, upsert=True)
+        db["configuracoes_grupo"].update_one(
+            {"chat_id": chat_id},
+            {"$set": {"acao_padrao": acao, "tempo_mute_padrao": 5}},
+            upsert=True
+        )
         await update.callback_query.answer("✅ Punição definida!", show_alert=True)
         await abrir_protecoes(update, context)
         return
 
 
 def registrar_configp(app):
-    app.add_handler(CallbackQueryHandler(tratar_botoes_configp, pattern="^(menu_config_grupos|config_grupo_|config_bemvindo_|config_protecao_|toggle_priv_|menu_punicao_priv_|def_pun_)"))
+    app.add_handler(CallbackQueryHandler(
+        tratar_botoes_configp,
+        pattern="^(menu_config_grupos|config_grupo_|config_bemvindo_|config_protecao_|toggle_priv_|menu_punicao_priv_|def_pun_)"
+    ))
