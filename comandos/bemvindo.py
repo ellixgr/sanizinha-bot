@@ -23,6 +23,7 @@ col_bemvindo = db["config_bem_vindo"]
 FUSO_BR = timezone(timedelta(hours=-3))
 ESTADOS_FLUXO = {}
 
+
 # ✅ VERIFICA SE É ADMINISTRADOR
 async def is_user_admin(update: Update, chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     try:
@@ -34,6 +35,7 @@ async def is_user_admin(update: Update, chat_id: int, user_id: int, context: Con
         return member.status in ["creator", "administrator"]
     except Exception:
         return False
+
 
 def carregar_dados_bv(chat_id: int):
     doc = col_bemvindo.find_one({"chat_id": chat_id})
@@ -59,6 +61,7 @@ def carregar_dados_bv(chat_id: int):
     status = doc.get("status", True)
     return texto, midia, botoes, status
 
+
 def salvar_no_mongo(chat_id: int, campo: str, valor):
     if campo == "botoes" and isinstance(valor, InlineKeyboardMarkup):
         serializavel = []
@@ -75,12 +78,14 @@ def salvar_no_mongo(chat_id: int, campo: str, valor):
         valor = serializavel
     col_bemvindo.update_one({"chat_id": chat_id}, {"$set": {campo: valor}}, upsert=True)
 
+
 def alternar_status_mongo(chat_id: int) -> bool:
     doc = col_bemvindo.find_one({"chat_id": chat_id})
     status_atual = doc.get("status", True) if doc else True
     novo_status = not status_atual
     col_bemvindo.update_one({"chat_id": chat_id}, {"$set": {"status": novo_status}}, upsert=True)
     return novo_status
+
 
 # ✅ CHAMADO PELO MENU ADM
 async def menu_bemvindo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -95,6 +100,7 @@ async def menu_bemvindo_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     await enviar_painel_principal_bv(context, chat_id, query=query)
 
+
 # ✅ COMANDO /bemvindo
 async def cmd_bemvindo_painel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -105,6 +111,7 @@ async def cmd_bemvindo_painel(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     await enviar_painel_principal_bv(context, chat_id, message=update.message)
+
 
 async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message=None, query=None, aviso_extra: str = None):
     texto, midia, botoes, status_atual = carregar_dados_bv(chat_id)
@@ -138,6 +145,7 @@ async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id
         await query.message.edit_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
     elif message:
         await message.reply_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
+
 
 # ✅ FORMATAÇÃO COMPLETA COM TODAS AS VARIÁVEIS
 async def montar_texto_formatado(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user) -> str:
@@ -174,16 +182,17 @@ async def montar_texto_formatado(context: ContextTypes.DEFAULT_TYPE, chat_id: in
         "{GROUPNAME}": chat_title,
         "{RULES}": regras_link
     }.items():
-        texto_base = texto_base.replace(chave, valor)
+        if valor:
+            texto_base = texto_base.replace(chave, valor)
     return texto_base
 
-# ✅ === CORRIGIDO: MANDA O TEXTO SEMPRE, MESMO QUANDO TEM MÍDIA ===
+
+# ✅ === ENVIAR BOAS-VINDAS PARA NOVOS MEMBROS ===
 async def enviar_mensagem_boas_vindas(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user):
     _, _, _, status_atual = carregar_dados_bv(chat_id)
     if not status_atual:
         return
     
-    # ✅ SEMPRE MONTA O TEXTO FORMATADO
     texto_final = await montar_texto_formatado(context, chat_id, user)
     _, midia, botoes, _ = carregar_dados_bv(chat_id)
 
@@ -192,34 +201,30 @@ async def enviar_mensagem_boas_vindas(context: ContextTypes.DEFAULT_TYPE, chat_i
             tipo, file_id, leg = midia
             
             if tipo == "photo":
-                # ✅ FOTO + TEXTO NA LEGENDA
                 legenda_final = texto_final
                 if leg:
                     legenda_final = f"{leg}\n\n{texto_final}"
                 await context.bot.send_photo(chat_id, file_id, caption=legenda_final, reply_markup=botoes, parse_mode="HTML")
             
             elif tipo == "video":
-                # ✅ VÍDEO + TEXTO NA LEGENDA
                 legenda_final = texto_final
                 if leg:
                     legenda_final = f"{leg}\n\n{texto_final}"
                 await context.bot.send_video(chat_id, file_id, caption=legenda_final, reply_markup=botoes, parse_mode="HTML")
             
             elif tipo == "sticker":
-                # ✅ FIGURINHA PRIMEIRO → DEPOIS MANDA O TEXTO SEPARADO
                 await context.bot.send_sticker(chat_id, file_id)
                 await context.bot.send_message(chat_id, texto_final, reply_markup=botoes, parse_mode="HTML")
         else:
-            # ✅ SEM MÍDIA → SÓ MANDA O TEXTO
             await context.bot.send_message(chat_id, texto_final, reply_markup=botoes, parse_mode="HTML")
     
     except Exception as e:
         logger.error(f"Erro boas-vindas: {e}")
-        # ✅ SE DER ERRO NA MÍDIA, MANDA O TEXTO DE QUALQUER JEITO
         try:
             await context.bot.send_message(chat_id, texto_final, reply_markup=botoes, parse_mode="HTML")
         except:
             pass
+
 
 async def boas_vindas_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.new_chat_members:
@@ -228,6 +233,7 @@ async def boas_vindas_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         if member.is_bot:
             continue
         await enviar_mensagem_boas_vindas(context, update.effective_chat.id, member)
+
 
 # ✅ === EDITAR TEXTO ===
 async def cb_edit_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -258,6 +264,7 @@ async def cb_edit_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
+
 # ✅ === EDITAR MÍDIA ===
 async def cb_edit_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -274,6 +281,7 @@ async def cb_edit_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Você também pode colocar uma legenda junto!"
     )
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+
 
 # ✅ === EDITAR BOTÕES ===
 async def cb_edit_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -293,7 +301,8 @@ async def cb_edit_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
-# ✅ === VER FUNÇÕES ===
+
+# ✅ === VER TEXTO — MOSTRA O TEXTO FORMATADO ===
 async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -302,11 +311,30 @@ async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_user_admin(update, chat_id, user_id, context):
         await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
-    texto, _, _, _ = carregar_dados_bv(chat_id)
-    txt = texto or "Nenhum texto salvo."
+    
+    # ✅ SIMULA UM USUÁRIO PARA MOSTRAR COMO VAI FICAR
+    class SimuladoUser:
+        first_name = "Nome"
+        last_name = "Sobrenome"
+        id = user_id
+        language_code = "pt"
+        username = "usuario_teste"
+        def mention_html(self):
+            return f"<a href='tg://user?id={self.id}'>{self.first_name}</a>"
+    
+    usuario_simulado = SimuladoUser()
+    texto_formatado = await montar_texto_formatado(context, chat_id, usuario_simulado)
+    
     teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]])
-    await query.message.edit_text(f"📄 Texto atual:\n\n{txt}", reply_markup=teclado, parse_mode="Markdown")
+    await query.message.edit_text(
+        f"📄 **PRÉVIA DO TEXTO:**\n\n{texto_formatado}",
+        reply_markup=teclado,
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
 
+
+# ✅ === VER MÍDIA — ENVIA A MÍDIA FÍSICA ===
 async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -315,15 +343,53 @@ async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_user_admin(update, chat_id, user_id, context):
         await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
+    
     _, midia, _, _ = carregar_dados_bv(chat_id)
-    if midia:
-        tipo = midia[0]
-        txt = f"✅ Mídia salva: {tipo.upper()}"
-    else:
-        txt = "❌ Nenhuma mídia salva."
-    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]])
-    await query.message.edit_text(f"🎞️ Mídia atual:\n\n{txt}", reply_markup=teclado, parse_mode="Markdown")
+    if not midia:
+        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]])
+        await query.message.edit_text("❌ Nenhuma mídia salva.", reply_markup=teclado, parse_mode="Markdown")
+        return
+    
+    tipo, file_id, leg = midia
+    teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_cancelar")]])
+    
+    # ✅ ENVIA A MÍDIA DE VERDADE, NÃO SÓ ESCREVE "PHOTO"
+    if tipo == "photo":
+        await context.bot.send_photo(
+            chat_id=query.message.chat.id,
+            photo=file_id,
+            caption=f"📸 **Prévia da foto de boas-vindas:**\n{leg or 'Sem legenda'}",
+            reply_markup=teclado_voltar,
+            parse_mode="Markdown"
+        )
+    elif tipo == "video":
+        await context.bot.send_video(
+            chat_id=query.message.chat.id,
+            video=file_id,
+            caption=f"🎬 **Prévia do vídeo de boas-vindas:**\n{leg or 'Sem legenda'}",
+            reply_markup=teclado_voltar,
+            parse_mode="Markdown"
+        )
+    elif tipo == "sticker":
+        await context.bot.send_sticker(
+            chat_id=query.message.chat.id,
+            sticker=file_id
+        )
+        await context.bot.send_message(
+            chat_id=query.message.chat.id,
+            text="🏷️ **Figurinha de boas-vindas**",
+            reply_markup=teclado_voltar,
+            parse_mode="Markdown"
+        )
+    
+    # ✅ APAGA A MENSAGEM DO BOTÃO "VER" E DEIXA SÓ A MÍDIA
+    try:
+        await query.message.delete()
+    except:
+        pass
 
+
+# ✅ === VER BOTÕES — MOSTRA EXATAMENTE COMO VÃO APARECER ===
 async def cb_ver_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -332,10 +398,72 @@ async def cb_ver_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_user_admin(update, chat_id, user_id, context):
         await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
+    
     _, _, botoes, _ = carregar_dados_bv(chat_id)
-    txt = f"✅ Botões configurados!" if botoes else "❌ Nenhum botão salvo."
-    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]])
-    await query.message.edit_text(f"🔲 Botões atuais:\n\n{txt}", reply_markup=teclado, parse_mode="Markdown")
+    
+    if not botoes:
+        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]])
+        await query.message.edit_text("❌ Nenhum botão salvo.", reply_markup=teclado, parse_mode="Markdown")
+        return
+    
+    # ✅ MOSTRA OS BOTÕES REAIS IGUAL VAI APARECER NO BEM-VINDO
+    teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_cancelar")]])
+    
+    await query.message.edit_text(
+        "🔲 **PRÉVIA DOS BOTÕES:**\n\nAbaixo estão os botões exatamente como serão enviados:",
+        reply_markup=botoes,
+        parse_mode="Markdown"
+    )
+    # Adiciona botão de voltar separado
+    await query.message.reply_text("⬆️ Estes são os botões salvos acima!", reply_markup=teclado_voltar)
+
+
+# ✅ === VISUALIZAÇÃO COMPLETA — MOSTRA TUDO JUNTO ===
+async def cb_ver_completa_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    if not await is_user_admin(update, chat_id, user_id, context):
+        await query.answer("⚠️ Apenas ADMs!", show_alert=True)
+        return
+    
+    # ✅ SIMULA USUÁRIO
+    class SimuladoUser:
+        first_name = "Maria"
+        last_name = "Silva"
+        id = user_id
+        language_code = "pt"
+        username = "maria_silva"
+        def mention_html(self):
+            return f"<a href='tg://user?id={self.id}'>{self.first_name}</a>"
+    
+    usuario_simulado = SimuladoUser()
+    texto_final = await montar_texto_formatado(context, chat_id, usuario_simulado)
+    _, midia, botoes, _ = carregar_dados_bv(chat_id)
+    
+    teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_cancelar")]])
+    
+    # ✅ SIMULAÇÃO COMPLETA IGUAL VAI SER ENVIADA
+    if midia:
+        tipo, file_id, leg = midia
+        legenda = f"{leg or ''}\n\n{texto_final}".strip()
+        if tipo == "photo":
+            await context.bot.send_photo(chat_id=query.message.chat.id, photo=file_id, caption=legenda, reply_markup=botoes, parse_mode="HTML")
+        elif tipo == "video":
+            await context.bot.send_video(chat_id=query.message.chat.id, video=file_id, caption=legenda, reply_markup=botoes, parse_mode="HTML")
+        elif tipo == "sticker":
+            await context.bot.send_sticker(chat_id=query.message.chat.id, sticker=file_id)
+            await context.bot.send_message(chat_id=query.message.chat.id, text=texto_final, reply_markup=botoes, parse_mode="HTML")
+    else:
+        await context.bot.send_message(chat_id=query.message.chat.id, text=texto_final, reply_markup=botoes, parse_mode="HTML")
+    
+    await context.bot.send_message(chat_id=query.message.chat.id, text="✅ **Acima está a prévia COMPLETA da mensagem de boas-vindas!**", reply_markup=teclado_voltar, parse_mode="Markdown")
+    try:
+        await query.message.delete()
+    except:
+        pass
+
 
 async def cb_toggle_status_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -349,6 +477,7 @@ async def cb_toggle_status_bv(update: Update, context: ContextTypes.DEFAULT_TYPE
     aviso = "✅ Boas-vindas ATIVADAS!" if novo_status else "🔴 Boas-vindas DESATIVADAS!"
     await enviar_painel_principal_bv(context, chat_id, query=query, aviso_extra=aviso)
 
+
 async def cb_cancelar_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -359,6 +488,7 @@ async def cb_cancelar_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     ESTADOS_FLUXO.pop((chat_id, user_id), None)
     await enviar_painel_principal_bv(context, chat_id, query=query)
+
 
 # ✅ === PARSEADOR DE BOTÕES ===
 def parsear_botoes(texto: str, username_bot: str = ""):
@@ -393,6 +523,7 @@ def parsear_botoes(texto: str, username_bot: str = ""):
             teclado.append(botoes_linha)
     return InlineKeyboardMarkup(teclado) if teclado else None
 
+
 # ✅ === CAPTURA E SALVA — AGORA AVISA CLARO QUE SALVOU ===
 async def capturar_fluxo_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -419,29 +550,30 @@ async def capturar_fluxo_admin(update: Update, context: ContextTypes.DEFAULT_TYP
         if message.photo:
             arquivo = message.photo[-1]
             salvar_no_mongo(chat.id, "midia", ("photo", arquivo.file_id, legenda))
-            aviso = "✅ **FOTO SALVA!** ✅" + ("\n(com legenda)" if legenda else "")
+            aviso = "✅ **FOTO SALVA COM SUCESSO!** ✅" + (f"\n📝 Legenda: {legenda}" if legenda else "")
         
         elif message.video:
             arquivo = message.video
             salvar_no_mongo(chat.id, "midia", ("video", arquivo.file_id, legenda))
-            aviso = "✅ **VÍDEO SALVO!** ✅" + ("\n(com legenda)" if legenda else "")
+            aviso = "✅ **VÍDEO SALVO COM SUCESSO!** ✅" + (f"\n📝 Legenda: {legenda}" if legenda else "")
         
         elif message.sticker:
             arquivo = message.sticker
             salvar_no_mongo(chat.id, "midia", ("sticker", arquivo.file_id, legenda))
-            aviso = "✅ **FIGURINHA SALVA!** ✅"
+            aviso = "✅ **FIGURINHA SALVA COM SUCESSO!** ✅"
     
     elif estado == "aguardando_botoes_bv":
         texto = message.text or ""
         botoes = parsear_botoes(texto, context.bot.username)
         if botoes:
             salvar_no_mongo(chat.id, "botoes", botoes)
-            aviso = "✅ **BOTÕES SALVOS!** ✅"
+            aviso = "✅ **BOTÕES SALVOS COM SUCESSO!** ✅"
         else:
-            aviso = "⚠️ **Formato inválido!** Tente novamente."
+            aviso = "⚠️ **Formato inválido!** Tente novamente.\nUse: `Título - Link`"
     
     if aviso:
         await enviar_painel_principal_bv(context, chat.id, aviso_extra=aviso)
+
 
 # ✅ === TRATA TODOS OS BOTÕES ===
 async def tratar_botoes_bemvindo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -460,13 +592,19 @@ async def tratar_botoes_bemvindo(update: Update, context: ContextTypes.DEFAULT_T
         await cb_ver_midia_bv(update, context)
     elif dados == "bv_ver_botoes":
         await cb_ver_botoes_bv(update, context)
+    elif dados == "bv_ver_completa":
+        await cb_ver_completa_bv(update, context)
     elif dados == "bv_cancelar":
         await cb_cancelar_bv(update, context)
     elif dados == "menu_adm":
-        from comandos.menus import menu_adm_handler
-        await menu_adm_handler(update, context)
+        try:
+            from comandos.menus import menu_adm_handler
+            await menu_adm_handler(update, context)
+        except:
+            await update.callback_query.answer("❌ Voltar ao menu ADM", show_alert=True)
     else:
         await update.callback_query.answer("❌ Função não encontrada!", show_alert=True)
+
 
 def registrar_comandos_bv(application):
     application.add_handler(CommandHandler("bemvindo", cmd_bemvindo_painel, filters=~filters.ChatType.PRIVATE))
@@ -475,3 +613,4 @@ def registrar_comandos_bv(application):
         ~filters.COMMAND & (filters.TEXT | filters.PHOTO | filters.VIDEO | filters.Sticker.ALL),
         capturar_fluxo_admin
     ))
+    application.add_handler(CallbackQueryHandler(tratar_botoes_bemvindo, pattern="^(bv_|menu_adm)"))
