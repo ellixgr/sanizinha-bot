@@ -9,18 +9,15 @@ MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
 db = MongoClient(MONGO_URI)["bot_database"]
 xadrez_db = db["jogo_xadrez"]
 
-# ✅ MAPEAMENTO DAS PEÇAS
 SIMBOLOS_PECAS = {
     "K": "♔", "Q": "♕", "R": "♖", "B": "♗", "N": "♘", "P": "♙",
     "k": "♚", "q": "♛", "r": "♜", "b": "♝", "n": "♞", "p": "♟",
     ".": " "
 }
 
-# ✅ FUNÇÃO AUXILIAR PARA MONTAR O TEXTO DAS CAPTURAS
 def montar_capturas(lista):
     return " ".join(lista) if lista else ""
 
-# ✅ FUNÇÃO DE CONVERSÃO CORRETA
 def gerar_tabuleiro_botoes(tabuleiro: chess.Board, selecionado=None, destinos_validos=None):
     texto_tabuleiro = str(tabuleiro).replace(" ", "").split("\n")
     botoes = []
@@ -43,13 +40,11 @@ def gerar_tabuleiro_botoes(tabuleiro: chess.Board, selecionado=None, destinos_va
     botoes.append([InlineKeyboardButton("🚫 Abandonar", callback_data="xadrez_sair")])
     return InlineKeyboardMarkup(botoes)
 
-# ✅ REGISTRO
 def setup_xadrez(app: Application):
     app.add_handler(CommandHandler("xadrez", cmd_iniciar_xadrez))
     app.add_handler(CallbackQueryHandler(menu_xadrez_handler, pattern="^jogo_xadrez$"))
     app.add_handler(CallbackQueryHandler(tratar_botoes_menu, pattern="^xadrez_"))
 
-# ✅ MENU PRINCIPAL AJUSTADO
 async def menu_xadrez_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -63,7 +58,6 @@ async def menu_xadrez_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode="Markdown"
     )
 
-# ✅ COMANDO /xadrez — DETECTA BOT E INICIA IA AUTOMÁTICO
 async def cmd_iniciar_xadrez(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     usuario = update.effective_user
@@ -75,7 +69,6 @@ async def cmd_iniciar_xadrez(update: Update, context: ContextTypes.DEFAULT_TYPE)
     mensagem_respondida = update.message.reply_to_message
     adversario = mensagem_respondida.from_user if mensagem_respondida else None
 
-    # Se marcar o bot ou a mensagem do bot → INICIA VS IA
     if adversario and adversario.is_bot:
         tab = chess.Board()
         xadrez_db.update_one({"chat_id": chat.id}, {
@@ -110,7 +103,6 @@ async def cmd_iniciar_xadrez(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Não pode desafiar você mesmo!")
         return
 
-    # Desafio PvP
     xadrez_db.update_one({"chat_id": chat.id}, {
         "$set": {
             "desafiante": usuario.id,
@@ -129,14 +121,12 @@ async def cmd_iniciar_xadrez(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode="Markdown"
     )
 
-# ✅ TRATA TODOS OS CLIQUES — TEXTO NO FORMATO QUE QUERIA
 async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     dados = query.data
     chat_id = query.message.chat.id
     uid = update.effective_user.id
 
-    # Instrução PvP
     if dados == "xadrez_pvp":
         await query.answer("Modo PvP!", show_alert=True)
         await query.message.edit_text(
@@ -146,7 +136,6 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # Iniciar modo IA
     if dados == "xadrez_ia":
         tab = chess.Board()
         xadrez_db.update_one({"chat_id": chat_id}, {
@@ -170,7 +159,6 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
 
-    # Aceitar desafio
     if dados == "xadrez_aceitar":
         jogo = xadrez_db.find_one({"chat_id": chat_id})
         if not jogo or jogo["status"] != "aguardando" or uid != jogo["desafiado"]:
@@ -221,13 +209,12 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.message.edit_text("🚫 Partida encerrada!")
         return
 
-    # Clique no tabuleiro
     if dados.startswith("xadrez_") and len(dados.split("_")) == 3:
         _, linha, coluna = dados.split("_")
         linha, coluna = int(linha), int(coluna)
         jogo = xadrez_db.find_one({"chat_id": chat_id})
         
-        if not jogo or jogo["status"] != "ativo":
+        if not jogo or jogo.get("status", "ativo") != "ativo":
             await query.answer("Partida não existe!", show_alert=True)
             return
         if uid != jogo["turno"]:
@@ -237,7 +224,6 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
         tab = chess.Board(jogo["tabuleiro"])
         selecionado = jogo.get("selecionado")
 
-        # Primeiro clique: seleciona peça
         if not selecionado:
             casa = chess.square(coluna, 7 - linha)
             peca = tab.piece_at(casa)
@@ -265,7 +251,6 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
 
-        # Segundo clique: faz movimento
         l1, c1 = selecionado
         origem = chess.square(c1, 7 - l1)
         destino = chess.square(coluna, 7 - linha)
@@ -275,7 +260,6 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.answer("❌ Movimento inválido!", show_alert=True)
             return
 
-        # Registra captura — SÓ ADICIONA SE REALMENTE CAPTURAR
         peca_capturada = tab.piece_at(destino)
         tab.push(movimento)
 
@@ -288,7 +272,6 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 novas = jogo.get("capturas_pretas", []) + [simbolo]
                 xadrez_db.update_one({"chat_id": chat_id}, {"$set": {"capturas_pretas": novas}})
 
-        # Fim de jogo
         if tab.is_checkmate():
             vencedor = jogo["brancas_nome"] if tab.turn == chess.BLACK else jogo["pretas_nome"]
             xadrez_db.delete_one({"chat_id": chat_id})
@@ -297,11 +280,9 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
             xadrez_db.delete_one({"chat_id": chat_id})
             return await query.message.edit_text("🤝 **EMPATE!** Partida finalizada.", parse_mode="Markdown")
 
-        # ✅ MODO IA CORRIGIDO — NÃO TRAVA MAIS
         if jogo["modo"] == "ia" and tab.turn == chess.BLACK:
             todos_movs = list(tab.legal_moves)
             if todos_movs:
-                # Escolhe movimento aleatório válido
                 mov_ia = random.choice(todos_movs)
                 peca_cap_ia = tab.piece_at(mov_ia.to_square)
                 tab.push(mov_ia)
@@ -314,7 +295,6 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     xadrez_db.delete_one({"chat_id": chat_id})
                     return await query.message.edit_text("🤖 A IA venceu!", parse_mode="Markdown")
 
-                # Atualiza com a sua vez
                 aviso = "⚠️ **XEQUE!** " if tab.is_check() else ""
                 await query.message.edit_text(
                     f"{aviso}𝘝𝘌𝘡 𝘋𝘖(𝘈) @{jogo['brancas_nome']}\n\n𝘊𝘈𝘗𝘛𝘜𝘙𝘈𝘚:\n@{jogo['brancas_nome']} : {montar_capturas(jogo.get('capturas_brancas',[]))}\n@{jogo['pretas_nome']} : {montar_capturas(jogo.get('capturas_pretas',[]))}",
@@ -324,7 +304,6 @@ async def tratar_botoes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 xadrez_db.update_one({"chat_id": chat_id}, {"$set": {"tabuleiro": tab.fen(), "selecionado": None}})
                 return
 
-        # Atualiza turno normal
         proximo_nome = jogo["pretas_nome"] if tab.turn == chess.BLACK else jogo["brancas_nome"]
         proximo_id = jogo["pretas"] if tab.turn == chess.BLACK else jogo["brancas"]
         aviso = "⚠️ **XEQUE!** " if tab.is_check() else ""
