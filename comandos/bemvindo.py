@@ -146,7 +146,15 @@ async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id
     ])
 
     if query and query.message:
-        await query.message.edit_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
+        try:
+            await query.message.edit_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
+        except Exception:
+            # ✅ Se não puder editar, APAGA e ENVIA NOVA mensagem
+            try:
+                await query.message.delete()
+            except:
+                pass
+            await context.bot.send_message(chat_id, texto_painel, reply_markup=teclado, parse_mode="Markdown")
     elif message:
         await message.reply_text(texto_painel, reply_markup=teclado, parse_mode="Markdown")
 
@@ -306,12 +314,6 @@ async def cb_edit_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 
-# ✅ === FUNÇÃO AUXILIAR: VOLTAR AO PAINEL (FUNCIONA DE QUALQUER LUGAR) ===
-async def voltar_ao_painel_bv(context: ContextTypes.DEFAULT_TYPE, chat_id: int, chat_destino):
-    """Função unificada para voltar ao painel — funciona com query ou mensagem nova"""
-    await enviar_painel_principal_bv(context, chat_id, query=chat_destino if hasattr(chat_destino, 'message') else None)
-
-
 # ✅ === VER TEXTO — MOSTRA PRÉVIA + BOTÃO DE EXCLUIR ===
 async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -325,7 +327,7 @@ async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto_salvo, _, _, _ = carregar_dados_bv(chat_id)
     
     if not texto_salvo:
-        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_voltar_painel")]])
+        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_voltar_painel")]])
         await query.message.edit_text("❌ Nenhum texto salvo.", reply_markup=teclado, parse_mode="Markdown")
         return
     
@@ -374,7 +376,7 @@ async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     tipo, file_id, leg = midia
     
-    # ✅ BOTÕES: EXCLUIR + VOLTAR — USANDO CALLBACK QUE FUNCIONA!
+    # ✅ BOTÕES: EXCLUIR + VOLTAR
     teclado_acoes = InlineKeyboardMarkup([
         [InlineKeyboardButton("🗑️ Apagar Mídia", callback_data="bv_excluir_midia")],
         [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_voltar_painel")]
@@ -383,7 +385,7 @@ async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ✅ ENVIA A MÍDIA DE VERDADE
     if tipo == "photo":
         await context.bot.send_photo(
-            chat_id=query.message.chat.id,
+            chat_id=chat_id,
             photo=file_id,
             caption=f"📸 **Prévia da foto de boas-vindas:**\n{leg or 'Sem legenda'}",
             reply_markup=teclado_acoes,
@@ -391,7 +393,7 @@ async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif tipo == "video":
         await context.bot.send_video(
-            chat_id=query.message.chat.id,
+            chat_id=chat_id,
             video=file_id,
             caption=f"🎬 **Prévia do vídeo de boas-vindas:**\n{leg or 'Sem legenda'}",
             reply_markup=teclado_acoes,
@@ -399,11 +401,11 @@ async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif tipo == "sticker":
         await context.bot.send_sticker(
-            chat_id=query.message.chat.id,
+            chat_id=chat_id,
             sticker=file_id
         )
         await context.bot.send_message(
-            chat_id=query.message.chat.id,
+            chat_id=chat_id,
             text="🏷️ **Figurinha de boas-vindas**",
             reply_markup=teclado_acoes,
             parse_mode="Markdown"
@@ -473,6 +475,7 @@ async def cb_excluir_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     
     excluir_campo_bv(chat_id, "midia")
+    # ✅ NÃO USA query=query pois mensagem original já foi apagada
     await enviar_painel_principal_bv(context, chat_id, aviso_extra="✅ **MÍDIA APAGADA COM SUCESSO!**")
 
 
@@ -500,9 +503,11 @@ async def cb_voltar_painel_bv(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("⚠️ Apenas ADMs!", show_alert=True)
         return
     
-    # ✅ LIMPA O ESTADO E RECARREGA O PAINEL DIRETAMENTE
+    # ✅ LIMPA O ESTADO
     ESTADOS_FLUXO.pop((chat_id, user_id), None)
-    await enviar_painel_principal_bv(context, chat_id, query=query)
+    
+    # ✅ TENTA EDITAR A MENSAGEM, SE NÃO CONSEGUIR → ENVIA NOVA
+    await enviar_painel_principal_bv(context, chat_id, query=query, aviso_extra=None)
 
 
 # ✅ === CANCELAR/VOLTAR — COMPATIBILIDADE ===
@@ -541,16 +546,16 @@ async def cb_ver_completa_bv(update: Update, context: ContextTypes.DEFAULT_TYPE)
         tipo, file_id, leg = midia
         legenda = f"{leg or ''}\n\n{texto_final}".strip()
         if tipo == "photo":
-            await context.bot.send_photo(chat_id=query.message.chat.id, photo=file_id, caption=legenda, reply_markup=botoes, parse_mode="HTML")
+            await context.bot.send_photo(chat_id=chat_id, photo=file_id, caption=legenda, reply_markup=botoes, parse_mode="HTML")
         elif tipo == "video":
-            await context.bot.send_video(chat_id=query.message.chat.id, video=file_id, caption=legenda, reply_markup=botoes, parse_mode="HTML")
+            await context.bot.send_video(chat_id=chat_id, video=file_id, caption=legenda, reply_markup=botoes, parse_mode="HTML")
         elif tipo == "sticker":
-            await context.bot.send_sticker(chat_id=query.message.chat.id, sticker=file_id)
-            await context.bot.send_message(chat_id=query.message.chat.id, text=texto_final, reply_markup=botoes, parse_mode="HTML")
+            await context.bot.send_sticker(chat_id=chat_id, sticker=file_id)
+            await context.bot.send_message(chat_id=chat_id, text=texto_final, reply_markup=botoes, parse_mode="HTML")
     else:
-        await context.bot.send_message(chat_id=query.message.chat.id, text=texto_final, reply_markup=botoes, parse_mode="HTML")
+        await context.bot.send_message(chat_id=chat_id, text=texto_final, reply_markup=botoes, parse_mode="HTML")
     
-    await context.bot.send_message(chat_id=query.message.chat.id, text="✅ **Acima está a prévia COMPLETA da mensagem de boas-vindas!**", reply_markup=teclado_voltar, parse_mode="Markdown")
+    await context.bot.send_message(chat_id=chat_id, text="✅ **Acima está a prévia COMPLETA da mensagem de boas-vindas!**", reply_markup=teclado_voltar, parse_mode="Markdown")
     try:
         await query.message.delete()
     except:
