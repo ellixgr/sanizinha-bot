@@ -293,9 +293,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ BOTÕES DO JOGO DA VELHA E XADREZ — DEIXA PASSAR PARA OS HANDLERS ESPECÍFICOS
-    if dados.startswith("v_") or dados.startswith("vpos_") or dados.startswith("xadrez_"):
-        return  # ❗ NÃO FAZ NADA → deixa o handler específico do jogo tratar
+    # ✅ DEIXA OS HANDLERS ESPECÍFICOS DOS JOGOS TRATAREM
+    if dados.startswith("v_") or dados.startswith("vpos_") or \
+       dados.startswith("xadrez_") or dados.startswith("mem_") or \
+       dados.startswith("min_"):
+        return
 
     if dados.startswith("bv_"):
         from comandos.bemvindo import tratar_botoes_bemvindo
@@ -369,20 +371,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await menu_jogos_handler(update, context)
         return
 
-    if dados == "jogo_xadrez":
-        await query.answer("Abrindo Xadrez...")
-        from comandos.jogos.xadrez import menu_xadrez_handler
-        await menu_xadrez_handler(update, context)
-        return
-
     if dados == "jogo_velha":
         await query.answer("Abrindo Jogo da Velha...")
         from comandos.jogos.velha import menu_velha_handler
         await menu_velha_handler(update, context)
         return
 
-    if dados in ["jogo_memoria","jogo_dama"]:
-        await query.answer("Em breve!")
+    if dados == "jogo_xadrez":
+        await query.answer("Abrindo Xadrez...")
+        from comandos.jogos.xadrez import menu_xadrez_handler
+        await menu_xadrez_handler(update, context)
+        return
+
+    if dados == "jogo_memoria":
+        await query.answer("Abrindo Memória...")
+        from comandos.jogos.memoria import iniciar_memoria
+        await iniciar_memoria(update, context)
+        return
+
+    if dados == "jogo_minado":
+        await query.answer("Abrindo Campo Minado...")
+        from comandos.jogos.minado import iniciar_minado
+        await iniciar_minado(update, context)
+        return
+
+    if dados == "jogo_dama":
+        await query.answer("🔴 Damas em breve!", show_alert=True)
         return
 
     logger.warning(f"⚠️ Botão não registrado: {dados}")
@@ -402,18 +416,20 @@ def main():
 
     application.add_handler(TypeHandler(Update, interceptador_protecoes), group=-1)
 
-    # ✅ PRIMEIRO registra os handlers dos JOGOS → eles têm prioridade
+    # ✅ HANDLERS DOS JOGOS — PRIMEIRO (MAIOR PRIORIDADE)
     from comandos.jogos.velha import setup_velha
-    from comandos.jogos.memoria import setup_memoria
-    from comandos.jogos.dama import setup_dama
     from comandos.jogos.xadrez import setup_xadrez
+    from comandos.jogos.memoria import setup_memoria
+    from comandos.jogos.minado import setup_minado
+    from comandos.jogos.dama import setup_dama
 
     setup_velha(application)
     setup_xadrez(application)
     setup_memoria(application)
+    setup_minado(application)
     setup_dama(application)
 
-    # ✅ DEPOIS registra o handler genérico
+    # ✅ DEPOIS OS HANDLERS GERAIS
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stts", lambda u,c: cmd_stts(u, c, get_db, verificar_se_e_adm)))
     application.add_handler(CommandHandler("addgrupo", lambda u,c: cmd_addgrupo(u,c,get_db,FUSO_BR)))
