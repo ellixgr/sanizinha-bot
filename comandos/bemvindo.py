@@ -79,6 +79,10 @@ def salvar_no_mongo(chat_id: int, campo: str, valor):
     col_bemvindo.update_one({"chat_id": chat_id}, {"$set": {campo: valor}}, upsert=True)
 
 
+def excluir_campo_bv(chat_id: int, campo: str):
+    col_bemvindo.update_one({"chat_id": chat_id}, {"$unset": {campo: ""}})
+
+
 def alternar_status_mongo(chat_id: int) -> bool:
     doc = col_bemvindo.find_one({"chat_id": chat_id})
     status_atual = doc.get("status", True) if doc else True
@@ -138,7 +142,7 @@ async def enviar_painel_principal_bv(context: ContextTypes.DEFAULT_TYPE, chat_id
         [InlineKeyboardButton("🔲 Botões", callback_data="bv_edit_botoes"), InlineKeyboardButton("👀 Ver", callback_data="bv_ver_botoes")],
         [botao_status],
         [InlineKeyboardButton("👀 Visualização completa", callback_data="bv_ver_completa")],
-        [InlineKeyboardButton("🔙 Voltar", callback_data="menu_adm")]
+        [InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]
     ])
 
     if query and query.message:
@@ -302,7 +306,13 @@ async def cb_edit_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
 
 
-# ✅ === VER TEXTO — MOSTRA O TEXTO FORMATADO ===
+# ✅ === FUNÇÃO AUXILIAR: VOLTAR AO PAINEL (FUNCIONA DE QUALQUER LUGAR) ===
+async def voltar_ao_painel_bv(context: ContextTypes.DEFAULT_TYPE, chat_id: int, chat_destino):
+    """Função unificada para voltar ao painel — funciona com query ou mensagem nova"""
+    await enviar_painel_principal_bv(context, chat_id, query=chat_destino if hasattr(chat_destino, 'message') else None)
+
+
+# ✅ === VER TEXTO — MOSTRA PRÉVIA + BOTÃO DE EXCLUIR ===
 async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -310,6 +320,13 @@ async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not await is_user_admin(update, chat_id, user_id, context):
         await query.answer("⚠️ Apenas ADMs!", show_alert=True)
+        return
+    
+    texto_salvo, _, _, _ = carregar_dados_bv(chat_id)
+    
+    if not texto_salvo:
+        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_voltar_painel")]])
+        await query.message.edit_text("❌ Nenhum texto salvo.", reply_markup=teclado, parse_mode="Markdown")
         return
     
     # ✅ SIMULA UM USUÁRIO PARA MOSTRAR COMO VAI FICAR
@@ -325,7 +342,12 @@ async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     usuario_simulado = SimuladoUser()
     texto_formatado = await montar_texto_formatado(context, chat_id, usuario_simulado)
     
-    teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]])
+    # ✅ BOTÕES: EXCLUIR + VOLTAR
+    teclado = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑️ Apagar Texto", callback_data="bv_excluir_texto")],
+        [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_voltar_painel")]
+    ])
+    
     await query.message.edit_text(
         f"📄 **PRÉVIA DO TEXTO:**\n\n{texto_formatado}",
         reply_markup=teclado,
@@ -334,7 +356,7 @@ async def cb_ver_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ✅ === VER MÍDIA — ENVIA A MÍDIA FÍSICA ===
+# ✅ === VER MÍDIA — ENVIA A MÍDIA FÍSICA + BOTÕES FUNCIONANDO ===
 async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -346,20 +368,25 @@ async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     _, midia, _, _ = carregar_dados_bv(chat_id)
     if not midia:
-        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]])
+        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_voltar_painel")]])
         await query.message.edit_text("❌ Nenhuma mídia salva.", reply_markup=teclado, parse_mode="Markdown")
         return
     
     tipo, file_id, leg = midia
-    teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_cancelar")]])
     
-    # ✅ ENVIA A MÍDIA DE VERDADE, NÃO SÓ ESCREVE "PHOTO"
+    # ✅ BOTÕES: EXCLUIR + VOLTAR — USANDO CALLBACK QUE FUNCIONA!
+    teclado_acoes = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑️ Apagar Mídia", callback_data="bv_excluir_midia")],
+        [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_voltar_painel")]
+    ])
+    
+    # ✅ ENVIA A MÍDIA DE VERDADE
     if tipo == "photo":
         await context.bot.send_photo(
             chat_id=query.message.chat.id,
             photo=file_id,
             caption=f"📸 **Prévia da foto de boas-vindas:**\n{leg or 'Sem legenda'}",
-            reply_markup=teclado_voltar,
+            reply_markup=teclado_acoes,
             parse_mode="Markdown"
         )
     elif tipo == "video":
@@ -367,7 +394,7 @@ async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=query.message.chat.id,
             video=file_id,
             caption=f"🎬 **Prévia do vídeo de boas-vindas:**\n{leg or 'Sem legenda'}",
-            reply_markup=teclado_voltar,
+            reply_markup=teclado_acoes,
             parse_mode="Markdown"
         )
     elif tipo == "sticker":
@@ -378,18 +405,18 @@ async def cb_ver_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=query.message.chat.id,
             text="🏷️ **Figurinha de boas-vindas**",
-            reply_markup=teclado_voltar,
+            reply_markup=teclado_acoes,
             parse_mode="Markdown"
         )
     
-    # ✅ APAGA A MENSAGEM DO BOTÃO "VER" E DEIXA SÓ A MÍDIA
+    # ✅ APAGA A MENSAGEM DO BOTÃO "VER"
     try:
         await query.message.delete()
     except:
         pass
 
 
-# ✅ === VER BOTÕES — MOSTRA EXATAMENTE COMO VÃO APARECER ===
+# ✅ === VER BOTÕES — MOSTRA OS BOTÕES REAIS + BOTÃO DE EXCLUIR ===
 async def cb_ver_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -402,23 +429,88 @@ async def cb_ver_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _, _, botoes, _ = carregar_dados_bv(chat_id)
     
     if not botoes:
-        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="bv_cancelar")]])
+        teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_voltar_painel")]])
         await query.message.edit_text("❌ Nenhum botão salvo.", reply_markup=teclado, parse_mode="Markdown")
         return
     
-    # ✅ MOSTRA OS BOTÕES REAIS IGUAL VAI APARECER NO BEM-VINDO
-    teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_cancelar")]])
-    
+    # ✅ MOSTRA OS BOTÕES REAIS
     await query.message.edit_text(
         "🔲 **PRÉVIA DOS BOTÕES:**\n\nAbaixo estão os botões exatamente como serão enviados:",
         reply_markup=botoes,
         parse_mode="Markdown"
     )
-    # Adiciona botão de voltar separado
-    await query.message.reply_text("⬆️ Estes são os botões salvos acima!", reply_markup=teclado_voltar)
+    
+    # ✅ BOTÕES DE AÇÃO: EXCLUIR + VOLTAR
+    teclado_acoes = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑️ Apagar Botões", callback_data="bv_excluir_botoes")],
+        [InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_voltar_painel")]
+    ])
+    await query.message.reply_text("⬆️ Estes são os botões salvos acima!", reply_markup=teclado_acoes, parse_mode="Markdown")
 
 
-# ✅ === VISUALIZAÇÃO COMPLETA — MOSTRA TUDO JUNTO ===
+# ✅ === EXCLUIR TEXTO ===
+async def cb_excluir_texto_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    if not await is_user_admin(update, chat_id, user_id, context):
+        await query.answer("⚠️ Apenas ADMs!", show_alert=True)
+        return
+    
+    excluir_campo_bv(chat_id, "texto")
+    await enviar_painel_principal_bv(context, chat_id, query=query, aviso_extra="✅ **TEXTO APAGADO COM SUCESSO!**")
+
+
+# ✅ === EXCLUIR MÍDIA ===
+async def cb_excluir_midia_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    if not await is_user_admin(update, chat_id, user_id, context):
+        await query.answer("⚠️ Apenas ADMs!", show_alert=True)
+        return
+    
+    excluir_campo_bv(chat_id, "midia")
+    await enviar_painel_principal_bv(context, chat_id, aviso_extra="✅ **MÍDIA APAGADA COM SUCESSO!**")
+
+
+# ✅ === EXCLUIR BOTÕES ===
+async def cb_excluir_botoes_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    if not await is_user_admin(update, chat_id, user_id, context):
+        await query.answer("⚠️ Apenas ADMs!", show_alert=True)
+        return
+    
+    excluir_campo_bv(chat_id, "botoes")
+    await enviar_painel_principal_bv(context, chat_id, aviso_extra="✅ **BOTÕES APAGADOS COM SUCESSO!**")
+
+
+# ✅ === VOLTAR AO PAINEL PRINCIPAL (CORRIGIDO) ===
+async def cb_voltar_painel_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    if not await is_user_admin(update, chat_id, user_id, context):
+        await query.answer("⚠️ Apenas ADMs!", show_alert=True)
+        return
+    
+    # ✅ LIMPA O ESTADO E RECARREGA O PAINEL DIRETAMENTE
+    ESTADOS_FLUXO.pop((chat_id, user_id), None)
+    await enviar_painel_principal_bv(context, chat_id, query=query)
+
+
+# ✅ === CANCELAR/VOLTAR — COMPATIBILIDADE ===
+async def cb_cancelar_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await cb_voltar_painel_bv(update, context)
+
+
+# ✅ === VISUALIZAÇÃO COMPLETA ===
 async def cb_ver_completa_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -442,7 +534,7 @@ async def cb_ver_completa_bv(update: Update, context: ContextTypes.DEFAULT_TYPE)
     texto_final = await montar_texto_formatado(context, chat_id, usuario_simulado)
     _, midia, botoes, _ = carregar_dados_bv(chat_id)
     
-    teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_cancelar")]])
+    teclado_voltar = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar ao Painel", callback_data="bv_voltar_painel")]])
     
     # ✅ SIMULAÇÃO COMPLETA IGUAL VAI SER ENVIADA
     if midia:
@@ -476,18 +568,6 @@ async def cb_toggle_status_bv(update: Update, context: ContextTypes.DEFAULT_TYPE
     novo_status = alternar_status_mongo(chat_id)
     aviso = "✅ Boas-vindas ATIVADAS!" if novo_status else "🔴 Boas-vindas DESATIVADAS!"
     await enviar_painel_principal_bv(context, chat_id, query=query, aviso_extra=aviso)
-
-
-async def cb_cancelar_bv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-    if not await is_user_admin(update, chat_id, user_id, context):
-        await query.answer("⚠️ Apenas ADMs!", show_alert=True)
-        return
-    ESTADOS_FLUXO.pop((chat_id, user_id), None)
-    await enviar_painel_principal_bv(context, chat_id, query=query)
 
 
 # ✅ === PARSEADOR DE BOTÕES ===
@@ -578,6 +658,23 @@ async def capturar_fluxo_admin(update: Update, context: ContextTypes.DEFAULT_TYP
 # ✅ === TRATA TODOS OS BOTÕES ===
 async def tratar_botoes_bemvindo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dados = update.callback_query.data
+    
+    # ✅ VOLTAR AO PAINEL (FUNCIONA DE QUALQUER LUGAR!)
+    if dados == "bv_voltar_painel":
+        await cb_voltar_painel_bv(update, context)
+        return
+    
+    # ✅ EXCLUIR CAMPOS
+    if dados == "bv_excluir_texto":
+        await cb_excluir_texto_bv(update, context)
+        return
+    if dados == "bv_excluir_midia":
+        await cb_excluir_midia_bv(update, context)
+        return
+    if dados == "bv_excluir_botoes":
+        await cb_excluir_botoes_bv(update, context)
+        return
+    
     if dados == "bv_toggle_status":
         await cb_toggle_status_bv(update, context)
     elif dados == "bv_edit_texto":
