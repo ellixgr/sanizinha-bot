@@ -33,7 +33,6 @@ async def cmd_velha(update: Update, context):
         await update.message.reply_text("❌ Você não pode desafiar a si mesmo!", parse_mode="Markdown")
         return
     
-    # Se o usuário desafiou o próprio bot, inicia o modo IA exclusivo para ele no grupo
     if desafiado.is_bot:
         tabuleiro = [" " for _ in range(9)]
         jogos_db.update_one(
@@ -66,7 +65,6 @@ async def cmd_velha(update: Update, context):
         )
         return
 
-    # Salva o desafio PvP isolado por chat_id no MongoDB
     jogos_db.update_one(
         {"chat_id": chat.id},
         {"$set": {
@@ -101,7 +99,6 @@ async def menu_velha_handler(update: Update, context):
     user_name = update.effective_user.first_name
     await query.answer()
     
-    # Se clicar no menu para iniciar IA, verifica se já há jogo ativo
     estado = jogos_db.find_one({"chat_id": chat_id})
     if estado and estado.get("status") == "ativo":
         await query.answer("⚠️ Já existe uma partida ativa neste grupo!", show_alert=True)
@@ -298,12 +295,10 @@ async def tratar_botoes_velha(update: Update, context):
             else:
                 await query.answer("✅ Voto registrado! Aguardando o oponente clicar em 'Jogar de Novo'.")
                 
-                # Descobre quem falta aceitar
                 falta_id = desafiado_id if user_id == desafiante_id else desafiante_id
                 nome_falta = desafiado_nome if user_id == desafiante_id else desafiante_nome
                 nome_votou = desafiante_nome if user_id == desafiante_id else desafiado_nome
                 
-                # Remove o tabuleiro da tela e deixa apenas a instrução exigida
                 msg_base = query.message.text.split("\n\n⏳")[0].split("\n\n🎮")[0].split("\n\n🤝")[0]
                 
                 teclado_revanche = InlineKeyboardMarkup([
@@ -377,7 +372,6 @@ async def jogada_velha(update: Update, context):
         if vencedor or " " not in tabuleiro:
             await query.answer()
             await finalizar_jogo(query, tabuleiro, vencedor, "Você" if vencedor == "❌" else "Máquina", modo="ia")
-            # Limpa o mongo após o fim do jogo contra a IA
             jogos_db.delete_one({"chat_id": chat_id})
             return
 
@@ -390,7 +384,6 @@ async def jogada_velha(update: Update, context):
         if vencedor or " " not in tabuleiro:
             await query.answer()
             await finalizar_jogo(query, tabuleiro, vencedor, "Você" if vencedor == "❌" else "Máquina", modo="ia")
-            # Limpa o mongo após o fim do jogo contra a IA
             jogos_db.delete_one({"chat_id": chat_id})
             return
 
