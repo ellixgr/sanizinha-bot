@@ -5,14 +5,23 @@ from telegram.ext import CommandHandler, ContextTypes
 DONO_ID = os.environ.get("DONO_ID", "").strip()
 
 async def pode_gerenciar_adms(chat, user, bot):
-    """Verifica se pode promover/rebaixar: criador do grupo OU dono do bot."""
+    """Verifica se pode promover/rebaixar: 
+    → Criador do grupo OU 
+    → Admin com permissão de promover membros OU 
+    → Dono do bot
+    """
     if DONO_ID and str(user.id) == str(DONO_ID):
         return True
     try:
         member = await bot.get_chat_member(chat.id, user.id)
-        return member.status == "creator"
+        # ✅ Agora ADMs com permissão TAMBÉM podem!
+        if member.status == "creator":
+            return True
+        if member.status == "administrator" and getattr(member, "can_promote_members", False):
+            return True
     except Exception:
-        return False
+        pass
+    return False
 
 async def promover_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -23,19 +32,24 @@ async def promover_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Este comando só funciona em grupos!")
         return
 
-    # ✅ Verifica permissão
     if not await pode_gerenciar_adms(chat, user, bot):
-        await update.message.reply_text("⚠️ Apenas o **criador** do grupo ou dono do bot pode promover administradores!", parse_mode="Markdown")
+        await update.message.reply_text(
+            "⚠️ Você precisa ser **criador** ou **administrador com permissão de promover membros**!",
+            parse_mode="Markdown"
+        )
         return
 
-    # ✅ Verifica se bot tem permissão
+    # ✅ Verifica se o bot tem permissão
     try:
         bot_member = await bot.get_chat_member(chat.id, bot.id)
-        if not bot_member.status in ["administrator", "creator"] or not bot_member.can_promote_members:
-            await update.message.reply_text("❌ Eu preciso ser administrador com permissão de **promover membros**!", parse_mode="Markdown")
+        if bot_member.status != "administrator" or not getattr(bot_member, "can_promote_members", False):
+            await update.message.reply_text(
+                "❌ Eu preciso ser administrador com permissão de **promover membros**!",
+                parse_mode="Markdown"
+            )
             return
     except Exception as e:
-        await update.message.reply_text(f"❌ Não consegui verificar minhas permissões: {e}")
+        await update.message.reply_text(f"❌ Erro ao verificar permissões: {e}")
         return
 
     if not update.message.reply_to_message:
@@ -53,13 +67,11 @@ async def promover_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        # ✅ Verifica se já é admin
         alvo_member = await bot.get_chat_member(chat.id, alvo.id)
         if alvo_member.status in ["administrator", "creator"]:
             await update.message.reply_text("⚠️ Esse usuário já é administrador!")
             return
 
-        # ✅ Promove com permissões completas
         await bot.promote_chat_member(
             chat.id, alvo.id,
             is_anonymous=False,
@@ -68,16 +80,15 @@ async def promover_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             can_restrict_members=True,
             can_invite_users=True,
             can_pin_messages=True,
-            can_promote_members=False,  # ❌ Não deixa promover outros por padrão
+            can_promote_members=False,  # ❌ Não deixa o novo admin promover outros
             can_change_info=True
         )
-        await update.message.reply_text(f"⭐ O usuário **{alvo.first_name}** foi promovido a Administrador!", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"⭐ O usuário **{alvo.first_name}** foi promovido a Administrador!",
+            parse_mode="Markdown"
+        )
     except Exception as e:
-        erro = str(e).lower()
-        if "not enough rights" in erro:
-            await update.message.reply_text("❌ Não tenho permissão suficiente para promover!")
-        else:
-            await update.message.reply_text(f"❌ Erro ao promover: {e}")
+        await update.message.reply_text(f"❌ Erro ao promover: {e}")
 
 async def rebaixar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -88,19 +99,23 @@ async def rebaixar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Este comando só funciona em grupos!")
         return
 
-    # ✅ Verifica permissão
     if not await pode_gerenciar_adms(chat, user, bot):
-        await update.message.reply_text("⚠️ Apenas o **criador** do grupo ou dono do bot pode rebaixar administradores!", parse_mode="Markdown")
+        await update.message.reply_text(
+            "⚠️ Você precisa ser **criador** ou **administrador com permissão de promover membros**!",
+            parse_mode="Markdown"
+        )
         return
 
-    # ✅ Verifica se bot tem permissão
     try:
         bot_member = await bot.get_chat_member(chat.id, bot.id)
-        if not bot_member.status in ["administrator", "creator"] or not bot_member.can_promote_members:
-            await update.message.reply_text("❌ Eu preciso ser administrador com permissão de **promover membros**!", parse_mode="Markdown")
+        if bot_member.status != "administrator" or not getattr(bot_member, "can_promote_members", False):
+            await update.message.reply_text(
+                "❌ Eu preciso ser administrador com permissão de **promover membros**!",
+                parse_mode="Markdown"
+            )
             return
     except Exception as e:
-        await update.message.reply_text(f"❌ Não consegui verificar minhas permissões: {e}")
+        await update.message.reply_text(f"❌ Erro ao verificar minhas permissões: {e}")
         return
 
     if not update.message.reply_to_message:
@@ -109,7 +124,6 @@ async def rebaixar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     alvo = update.message.reply_to_message.from_user
 
-    # ✅ Não pode rebaixar o criador
     try:
         alvo_member = await bot.get_chat_member(chat.id, alvo.id)
         if alvo_member.status == "creator":
@@ -123,7 +137,6 @@ async def rebaixar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        # ✅ Remove todas as permissões → volta a ser membro comum
         await bot.promote_chat_member(
             chat.id, alvo.id,
             is_anonymous=False,
@@ -135,13 +148,12 @@ async def rebaixar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             can_promote_members=False,
             can_change_info=False
         )
-        await update.message.reply_text(f"📉 O usuário **{alvo.first_name}** foi rebaixado a membro comum.", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"📉 O usuário **{alvo.first_name}** foi rebaixado a membro comum.",
+            parse_mode="Markdown"
+        )
     except Exception as e:
-        erro = str(e).lower()
-        if "not enough rights" in erro:
-            await update.message.reply_text("❌ Não tenho permissão suficiente para rebaixar!")
-        else:
-            await update.message.reply_text(f"❌ Erro ao rebaixar: {e}")
+        await update.message.reply_text(f"❌ Erro ao rebaixar: {e}")
 
 def registrar_promover(app):
     app.add_handler(CommandHandler("promover", promover_cmd))
