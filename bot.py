@@ -482,11 +482,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.warning(f"⚠️ Botão não registrado: {dados}")
     await query.answer("❌ Função não encontrada!", show_alert=True)
 
-# ✅ CORRIGIDO — TRATAMENTO DE ERROS NOS MÓDULOS
+# ✅ CORRIGIDO — EVENT LOOP FUNCIONA NO RENDER!
 def main():
     # Inicia Flask em thread separada
     threading.Thread(target=run_web, daemon=True).start()
     logger.info("🌐 Servidor Web iniciado")
+
+    # ✅ CRIA E DEFINE O EVENT LOOP ANTES DE TUDO!
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
@@ -500,7 +504,7 @@ def main():
         group=0
     )
 
-    # ✅ INTERCEPTADOR DE PROTEÇÕES — RODA DEPOIS DE VERIFICAÇÃO DE GRUPO
+    # ✅ INTERCEPTADOR DE PROTEÇÕES
     application.add_handler(TypeHandler(Update, interceptador_protecoes), group=1)
 
     # ✅ HANDLERS DOS JOGOS (com tratamento de erro)
@@ -553,14 +557,16 @@ def main():
     logger.info("🤖 Bot iniciado com sucesso! ✅")
 
     try:
-        application.run_polling(drop_pending_updates=True)
+        # ✅ RODA O POLLING CORRETAMENTE NO LOOP
+        loop.run_until_complete(application.run_polling(drop_pending_updates=True))
     except Exception as e:
         logger.error(f"❌ Falha no polling: {e}")
     finally:
         try:
-            application.shutdown()
+            loop.run_until_complete(application.shutdown())
         except:
             pass
+        loop.close()
 
 if __name__ == "__main__":
     main()
