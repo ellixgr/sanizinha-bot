@@ -119,40 +119,46 @@ async def interceptador_protecoes(update: Update, context: ContextTypes.DEFAULT_
         raise ApplicationHandlerStop
 
 async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # ✅ VERIFICA SE FOI O BOT QUE FOI ADICIONADO
+    if not update.message or not update.message.new_chat_members:
+        return
+
+    bot_entrou = any(m.id == context.bot.id for m in update.message.new_chat_members)
+    if not bot_entrou:
+        return
+
     chat = update.effective_chat
-    user = update.effective_user
+    user = update.effective_user or (update.message.from_user if update.message else None)
+    
     if not chat or chat.type not in ["group", "supergroup"]:
         return
 
+    logger.info(f"🔔 BOT ADICIONADO | Grupo: {chat.title} | ID: {chat.id} | Por: {user.id if user else 'DESCONHECIDO'}")
+
     db = get_db()
-    eh_dono = (DONO_ID and str(user.id) == str(DONO_ID))
-    eh_assinante = await verificar_assinante(user.id)
+    eh_dono = bool(DONO_ID and user and str(user.id) == str(DONO_ID))
+    eh_assinante = await verificar_assinante(user.id) if user else False
     agora = datetime.now(FUSO_BR)
     timestamp_atual = time.time()
 
-    # 📝 DADOS BÁSICOS DO GRUPO
     dados_grupo = {
         "chat_id": chat.id,
         "nome": chat.title,
         "tipo": chat.type,
-        "dono_adicionou_id": user.id,
-        "dono_adicionou_nome": user.first_name,
+        "dono_adicionou_id": user.id if user else 0,
+        "dono_adicionou_nome": user.first_name if user else "Desconhecido",
         "adicionado_em": agora,
         "ativo": False,
         "expira_em": 0
     }
 
-    # ✅ SE FOR DONO → ATIVA AUTOMATICAMENTE SEM EXPIRAR
     if eh_dono:
         dados_grupo["ativo"] = True
-        dados_grupo["expira_em"] = 9999999999  # nunca expira
-        logger.info(f"👑 DONO adicionou: {chat.title} → ATIVADO PERMANENTE")
-        db["grupos_autorizados"].update_one(
-            {"chat_id": chat.id}, {"$set": dados_grupo}, upsert=True
-        )
-        return  # FICA NO GRUPO ✅
+        dados_grupo["expira_em"] = 9999999999
+        logger.info("👑 DONO — ATIVADO PERMANENTE")
+        db["grupos_autorizados"].update_one({"chat_id": chat.id}, {"$set": dados_grupo}, upsert=True)
+        return
 
-    # ✅ SE FOR ASSINANTE → ATIVA COM VALIDADE DA LICENÇA
     elif eh_assinante:
         licenca = db["licencas_aluguel"].find_one(
             {"user_id": user.id, "ativo": True, "expira_em": {"$gt": timestamp_atual}}
@@ -160,17 +166,12 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
         if licenca:
             dados_grupo["ativo"] = True
             dados_grupo["expira_em"] = licenca["expira_em"]
-            logger.info(f"💳 Assinante adicionou: {chat.title} → ATIVADO até {licenca['expira_em']}")
-            db["grupos_autorizados"].update_one(
-                {"chat_id": chat.id}, {"$set": dados_grupo}, upsert=True
-            )
-            return  # FICA NO GRUPO ✅
+            logger.info("💳 ASSINANTE — ATIVADO")
+            db["grupos_autorizados"].update_one({"chat_id": chat.id}, {"$set": dados_grupo}, upsert=True)
+            return
 
-    # ❌ USUÁRIO COMUM → SALVA MAS NÃO ATIVA → AVISA E SAI
-    logger.info(f"👤 Usuário comum adicionou: {chat.title} → SALVO, NÃO ATIVADO")
-    db["grupos_autorizados"].update_one(
-        {"chat_id": chat.id}, {"$set": dados_grupo}, upsert=True
-    )
+    logger.info("👤 USUÁRIO COMUM — SALVO, AVISA E SAI")
+    db["grupos_autorizados"].update_one({"chat_id": chat.id}, {"$set": dados_grupo}, upsert=True)
 
     aviso = (
         "⚠️ **USO NÃO AUTORIZADO**\n\n"
@@ -181,8 +182,6 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("🤖 Contratar Plano", url=f"https://t.me/{context.bot.username}?start=aluguel")]
     ])
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
-    
-    # 🚪 SAI DO GRUPO NA HORA
     await context.bot.leave_chat(chat.id)
 
 
@@ -341,7 +340,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     logger.info(f"📥 CLIQUE: {dados}")
 
-    # ✅ DEIXA OS HANDLERS ESPECÍFICOS DOS JOGOS TRATAREM
     if dados.startswith("v_") or dados.startswith("vpos_") or \
        dados.startswith("xadrez_") or dados.startswith("mem_") or \
        dados.startswith("min_"):
@@ -462,9 +460,21 @@ def main():
 
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    # ✅ 🔴 HANDLERS DE ADIÇÃO DO BOT — PRIMEIRO DE TODOS, COM PRIORIDADE MÁXIMA!
+    from telegram.ext import MessageHandler, filters
+    application.add_handler(
+        MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo),
+        group=0  # Roda ANTES de qualquer bloqueio!
+    )
+    application.add_handler(
+        MessageHandler(filters.StatusUpdate.CHAT_CREATED, bot_adicionado_grupo),
+        group=0
+    )
+
+    # ✅ DEPOIS o interceptador de proteções
     application.add_handler(TypeHandler(Update, interceptador_protecoes), group=-1)
 
-    # ✅ HANDLERS DOS JOGOS — PRIMEIRO (MAIOR PRIORIDADE)
+    # ✅ HANDLERS DOS JOGOS
     from comandos.jogos.velha import setup_velha
     from comandos.jogos.xadrez import setup_xadrez
     from comandos.jogos.memoria import setup_memoria
@@ -477,7 +487,7 @@ def main():
     setup_minado(application)
     setup_dama(application)
 
-    # ✅ DEPOIS OS HANDLERS GERAIS
+    # ✅ HANDLERS GERAIS
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stts", lambda u,c: cmd_stts(u, c, get_db, verificar_se_e_adm)))
     application.add_handler(CommandHandler("addgrupo", lambda u,c: cmd_addgrupo(u,c,get_db,FUSO_BR)))
@@ -502,10 +512,6 @@ def main():
     registrar_citar(application); registrar_comandos_bv(application)
     registrar_ping(application); registrar_id(application); registrar_perfil(application); registrar_ban(application)
     setup_play(application); registrar_mutar(application); registrar_deploy(application); registrar_aluguel(application)
-
-    from telegram.ext import MessageHandler, filters
-    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo))
-    application.add_handler(MessageHandler(filters.StatusUpdate.CHAT_CREATED, bot_adicionado_grupo))
 
     logger.info("🤖 Bot iniciado com sucesso! ✅")
 
