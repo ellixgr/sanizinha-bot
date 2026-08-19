@@ -5,7 +5,19 @@ from pymongo import MongoClient
 import re
 
 MONGO_URI = os.environ.get("MONGO_URI")
-DONO_ID = os.environ.get("DONO_ID")
+DONO_ID = os.environ.get("DONO_ID", "").strip()
+
+# ✅ Reutiliza a conexão (se já existir) — NÃO abre toda hora
+_mongo_client = None
+def get_db():
+    global _mongo_client
+    if _mongo_client is None:
+        _mongo_client = MongoClient(
+            MONGO_URI,
+            serverSelectionTimeoutMS=2000,
+            tlsAllowInvalidCertificates=True
+        )
+    return _mongo_client["sanizinhabot_db"]
 
 def limpar_nome(nome: str) -> str:
     """Remove caracteres problemáticos do nome"""
@@ -14,15 +26,14 @@ def limpar_nome(nome: str) -> str:
     return re.sub(r'[_*`\[\]()]', '', nome)
 
 async def gerar_texto_rank(chat, context):
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000, tlsAllowInvalidCertificates=True)
-    db = client["sanizinhabot_db"]
+    db = get_db()
     colecao = db["mensagens_usuarios"]
 
-    # Busca os 10 usuários com mais mensagens neste chat
+    # ✅ Limita ANTES de ordenar — mais rápido!
     top_usuarios = list(
         colecao.find({"chat_id": chat.id})
         .sort("total_mensagens", -1)
-        .limit(10)
+        .limit(10)  # ✅ Garantido!
     )
 
     if not top_usuarios:
@@ -33,6 +44,10 @@ async def gerar_texto_rank(chat, context):
     for i, doc in enumerate(top_usuarios, start=1):
         user_id = doc.get("user_id")
         total_msgs = doc.get("total_mensagens", 0)
+        # ✅ Garante que é número
+        if not isinstance(total_msgs, (int, float)):
+            total_msgs = 0
+        total_msgs = int(total_msgs)
 
         mencao_usuario = f"Usuário {user_id}"
         try:
@@ -42,31 +57,22 @@ async def gerar_texto_rank(chat, context):
             if tg_user.username:
                 mencao_usuario = f"@{tg_user.username}"
             elif tg_user.first_name:
-                # Exibe apenas o nome limpo em texto puro para evitar qualquer erro de entidade
-                mencao_usuario = limpar_nome(tg_user.first_name)
+                nome_limpo = limpar_nome(tg_user.first_name)
+                mencao_usuario = nome_limpo if nome_limpo else f"Usuário {user_id}"
+            else:
+                mencao_usuario = f"Usuário {user_id}"
         except Exception:
+            # Se não conseguir pegar info, mantém o ID
             pass
 
+        # ✅ Ícones de posição simplificados
+        pos_icon = f"{i}️⃣ {i}º LUGAR"
         if i == 1:
             pos_icon = "🥇 1º LUGAR"
         elif i == 2:
             pos_icon = "🥈 2º LUGAR"
         elif i == 3:
             pos_icon = "🥉 3º LUGAR"
-        elif i == 4:
-            pos_icon = "4️⃣ 4º LUGAR"
-        elif i == 5:
-            pos_icon = "5️⃣ 5º LUGAR"
-        elif i == 6:
-            pos_icon = "6️⃣ 6º LUGAR"
-        elif i == 7:
-            pos_icon = "7️⃣ 7º LUGAR"
-        elif i == 8:
-            pos_icon = "8️⃣ 8º LUGAR"
-        elif i == 9:
-            pos_icon = "9️⃣ 9º LUGAR"
-        else:
-            pos_icon = "🔟 10º LUGAR"
 
         texto_rank += (
             f"{pos_icon}\n"
@@ -77,6 +83,20 @@ async def gerar_texto_rank(chat, context):
 
     return texto_rank
 
+# ✅ FUNÇÃO ÚNICA DE VERIFICAÇÃO DE ADMIN — sem duplicata!
+async def is_admin_do_grupo(chat, user):
+    if not user or not chat:
+        return False
+    # Dono do bot é sempre admin
+    if DONO_ID and str(user.id) == str(DONO_ID):
+        return True
+    # Verifica no grupo
+    try:
+        membro = await chat.get_member(user.id)
+        return membro.status in ["administrator", "creator"]
+    except Exception:
+        return False
+
 async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
@@ -85,18 +105,7 @@ async def cmd_rank(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Este comando só pode ser usado dentro de grupos!")
         return
 
-    is_admin = False
-    if DONO_ID and str(user.id) == str(DONO_ID):
-        is_admin = True
-    else:
-        try:
-            membro = await chat.get_member(user.id)
-            if membro.status in ["administrator", "creator"]:
-                is_admin = True
-        except Exception:
-            pass
-
-    if not is_admin:
+    if not await is_admin_do_grupo(chat, user):
         await update.message.reply_text("⚠️ Apenas administradores do grupo podem usar o comando /rank!")
         return
 
@@ -120,18 +129,7 @@ async def callback_atualizar_rank(update: Update, context: ContextTypes.DEFAULT_
     chat = query.message.chat
     user = query.from_user
 
-    is_admin = False
-    if DONO_ID and str(user.id) == str(DONO_ID):
-        is_admin = True
-    else:
-        try:
-            membro = await chat.get_member(user.id)
-            if membro.status in ["administrator", "creator"]:
-                is_admin = True
-        except Exception:
-            pass
-
-    if not is_admin:
+    if not await is_admin_do_grupo(chat, user):
         await query.answer("⚠️ Apenas administradores podem atualizar o ranking!", show_alert=True)
         return
 
@@ -150,7 +148,7 @@ async def callback_atualizar_rank(update: Update, context: ContextTypes.DEFAULT_
             await query.answer("✅ Ranking atualizado com sucesso!")
         except Exception as telegram_error:
             if "Message is not modified" in str(telegram_error):
-                await query.answer("✨ O ranking já está atualizado com os dados mais recentes!", show_alert=False)
+                await query.answer("✨ O ranking já está atualizado!", show_alert=False)
             else:
                 raise telegram_error
 
