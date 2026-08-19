@@ -121,12 +121,57 @@ async def interceptador_protecoes(update: Update, context: ContextTypes.DEFAULT_
 async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    if not chat or chat.type not in ["group","supergroup"]:
+    if not chat or chat.type not in ["group", "supergroup"]:
         return
-    if DONO_ID and str(user.id) == str(DONO_ID):
-        return
-    if await grupo_autorizado(chat.id):
-        return
+
+    db = get_db()
+    eh_dono = (DONO_ID and str(user.id) == str(DONO_ID))
+    eh_assinante = await verificar_assinante(user.id)
+    agora = datetime.now(FUSO_BR)
+    timestamp_atual = time.time()
+
+    # 📝 DADOS BÁSICOS DO GRUPO
+    dados_grupo = {
+        "chat_id": chat.id,
+        "nome": chat.title,
+        "tipo": chat.type,
+        "dono_adicionou_id": user.id,
+        "dono_adicionou_nome": user.first_name,
+        "adicionado_em": agora,
+        "ativo": False,
+        "expira_em": 0
+    }
+
+    # ✅ SE FOR DONO → ATIVA AUTOMATICAMENTE SEM EXPIRAR
+    if eh_dono:
+        dados_grupo["ativo"] = True
+        dados_grupo["expira_em"] = 9999999999  # nunca expira
+        logger.info(f"👑 DONO adicionou: {chat.title} → ATIVADO PERMANENTE")
+        db["grupos_autorizados"].update_one(
+            {"chat_id": chat.id}, {"$set": dados_grupo}, upsert=True
+        )
+        return  # FICA NO GRUPO ✅
+
+    # ✅ SE FOR ASSINANTE → ATIVA COM VALIDADE DA LICENÇA
+    elif eh_assinante:
+        licenca = db["licencas_aluguel"].find_one(
+            {"user_id": user.id, "ativo": True, "expira_em": {"$gt": timestamp_atual}}
+        )
+        if licenca:
+            dados_grupo["ativo"] = True
+            dados_grupo["expira_em"] = licenca["expira_em"]
+            logger.info(f"💳 Assinante adicionou: {chat.title} → ATIVADO até {licenca['expira_em']}")
+            db["grupos_autorizados"].update_one(
+                {"chat_id": chat.id}, {"$set": dados_grupo}, upsert=True
+            )
+            return  # FICA NO GRUPO ✅
+
+    # ❌ USUÁRIO COMUM → SALVA MAS NÃO ATIVA → AVISA E SAI
+    logger.info(f"👤 Usuário comum adicionou: {chat.title} → SALVO, NÃO ATIVADO")
+    db["grupos_autorizados"].update_one(
+        {"chat_id": chat.id}, {"$set": dados_grupo}, upsert=True
+    )
+
     aviso = (
         "⚠️ **USO NÃO AUTORIZADO**\n\n"
         "Para usar este bot em seu grupo, é necessário contratar o plano de aluguel mensal.\n\n"
@@ -136,7 +181,10 @@ async def bot_adicionado_grupo(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("🤖 Contratar Plano", url=f"https://t.me/{context.bot.username}?start=aluguel")]
     ])
     await update.message.reply_text(aviso, reply_markup=botoes, parse_mode="Markdown")
+    
+    # 🚪 SAI DO GRUPO NA HORA
     await context.bot.leave_chat(chat.id)
+
 
 async def menu_adm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -454,6 +502,10 @@ def main():
     registrar_citar(application); registrar_comandos_bv(application)
     registrar_ping(application); registrar_id(application); registrar_perfil(application); registrar_ban(application)
     setup_play(application); registrar_mutar(application); registrar_deploy(application); registrar_aluguel(application)
+
+    from telegram.ext import MessageHandler, filters
+    application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bot_adicionado_grupo))
+    application.add_handler(MessageHandler(filters.StatusUpdate.CHAT_CREATED, bot_adicionado_grupo))
 
     logger.info("🤖 Bot iniciado com sucesso! ✅")
 
