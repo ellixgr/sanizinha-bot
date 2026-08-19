@@ -40,6 +40,7 @@ async def e_adm_no_chat(bot, chat_id: int, user_id: int) -> bool:
 # ==============================================
 async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()  # ✅ Responde ao Telegram
     user_id = update.effective_user.id
     bot = context.bot
 
@@ -51,9 +52,8 @@ async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TY
     db = get_db()
     agora = time.time()
 
-    # 🔴 CORRIGIDO: usa dono_adicionou_id (igual ao bot_adicionado_grupo)
     grupos_cadastrados = list(db["grupos_autorizados"].find({
-        "dono_adicionou_id": user_id,  # ✅ ERA registrado_por → AGORA ESTÁ CERTO!
+        "dono_adicionou_id": user_id,
         "ativo": True,
         "expira_em": {"$gt": agora}
     }))
@@ -65,7 +65,6 @@ async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TY
         )
         teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
-        await query.answer()
         return
 
     grupos_validos = []
@@ -76,7 +75,7 @@ async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TY
                 chat_info = await bot.get_chat(chat_id)
                 nome_real = chat_info.title or f"Grupo {chat_id}"
             except Exception:
-                nome_real = g.get("nome", f"Grupo {chat_id}")  # ✅ também corrigido: nome_grupo → nome
+                nome_real = g.get("nome", f"Grupo {chat_id}")
             grupos_validos.append({"chat_id": chat_id, "nome_real": nome_real})
 
     if not grupos_validos:
@@ -86,7 +85,6 @@ async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TY
         )
         teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
-        await query.answer()
         return
 
     qtd = len(grupos_validos)
@@ -102,7 +100,6 @@ async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TY
     teclado = InlineKeyboardMarkup(botoes)
 
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
-    await query.answer()
 
 
 # ==============================================
@@ -110,6 +107,7 @@ async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TY
 # ==============================================
 async def painel_config_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()  # ✅ Responde ao Telegram
     dados = query.data
     user_id = update.effective_user.id
     bot = context.bot
@@ -122,7 +120,6 @@ async def painel_config_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     db = get_db()
-    # 🔴 CORRIGIDO: dono_adicionou_id no lugar de registrado_por
     grupo = db["grupos_autorizados"].find_one({"chat_id": chat_id, "dono_adicionou_id": user_id})
     if not grupo:
         await query.answer("⚠️ Grupo não encontrado ou não pertence a você!", show_alert=True)
@@ -132,7 +129,7 @@ async def painel_config_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE
         chat_info = await bot.get_chat(chat_id)
         nome_grupo = chat_info.title or f"Grupo {chat_id}"
     except Exception:
-        nome_grupo = grupo.get("nome", f"Grupo {chat_id}")  # ✅ nome_grupo → nome
+        nome_grupo = grupo.get("nome", f"Grupo {chat_id}")
 
     texto = (
         f"⚙️ **CONFIGURANDO: {nome_grupo}**\n\n"
@@ -146,7 +143,6 @@ async def painel_config_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE
     ])
 
     await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
-    await query.answer()
 
 
 # ==============================================
@@ -154,10 +150,9 @@ async def painel_config_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ==============================================
 async def abrir_bemvindo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer("Abrindo configuração de Boas-Vindas...")
     dados = query.data
     chat_id = int(dados.replace("config_bemvindo_", ""))
-
-    await query.answer("Abrindo configuração de Boas-Vindas...")
     from comandos.bemvindo import enviar_painel_principal_bv
     await enviar_painel_principal_bv(context, chat_id, query=query)
 
@@ -167,10 +162,9 @@ async def abrir_bemvindo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================================
 async def abrir_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()  # ✅ Responde ao Telegram
     dados = query.data
     chat_id = int(dados.replace("config_protecao_", ""))
-
-    await query.answer("Abrindo configuração de Proteções...")
 
     db = get_db()
     cfg = db["configuracoes_grupo"].find_one({"chat_id": chat_id}) or {}
@@ -219,10 +213,11 @@ async def abrir_protecoes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================
-# ✅ CENTRAL DE BOTÕES
+# ✅ CENTRAL DE BOTÕES — CORRIGIDA
 # ==============================================
 async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    dados = update.callback_query.data
+    query = update.callback_query
+    dados = query.data
 
     if dados == "menu_config_grupos":
         await listar_grupos_usuario(update, context)
@@ -240,18 +235,28 @@ async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TY
         await abrir_protecoes(update, context)
         return
 
+    # ✅ TOGGLE PROTEÇÃO — CORRIGIDO
     if dados.startswith("toggle_priv_"):
+        await query.answer()  # ✅ Responde pro Telegram NÃO FICAR CARREGANDO!
         partes = dados.replace("toggle_priv_", "").rsplit("_", 1)
         tipo = partes[0]
         chat_id = int(partes[1])
         db = get_db()
         cfg = db["configuracoes_grupo"].find_one({"chat_id": chat_id}) or {}
         novo = not cfg.get(tipo, True)
-        db["configuracoes_grupo"].update_one({"chat_id": chat_id}, {"$set": {tipo: novo}}, upsert=True)
+        db["configuracoes_grupo"].update_one(
+            {"chat_id": chat_id},
+            {"$set": {tipo: novo}},
+            upsert=True
+        )
+        status = "✅ ATIVADO" if novo else "❌ DESATIVADO"
+        await query.answer(f"{tipo.upper()} {status}!")
         await abrir_protecoes(update, context)
         return
 
+    # ✅ MENU PUNIÇÃO
     if dados.startswith("menu_punicao_priv_"):
+        await query.answer()
         chat_id = int(dados.replace("menu_punicao_priv_", ""))
         texto = "⚖️ **ESCOLHA A PUNIÇÃO:**"
         teclado = InlineKeyboardMarkup([
@@ -260,10 +265,12 @@ async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TY
             [InlineKeyboardButton("🔇 Silenciar", callback_data=f"def_pun_mutar_{chat_id}")],
             [InlineKeyboardButton("🔙 Voltar", callback_data=f"config_protecao_{chat_id}")]
         ])
-        await update.callback_query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
+        await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
+    # ✅ DEFINIR PUNIÇÃO
     if dados.startswith("def_pun_"):
+        await query.answer()
         partes = dados.replace("def_pun_", "").rsplit("_", 1)
         tipo = partes[0]
         chat_id = int(partes[1])
@@ -275,7 +282,7 @@ async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TY
             {"$set": {"acao_padrao": acao, "tempo_mute_padrao": 5}},
             upsert=True
         )
-        await update.callback_query.answer("✅ Punição definida!", show_alert=True)
+        await query.answer("✅ Punição definida!", show_alert=True)
         await abrir_protecoes(update, context)
         return
 
