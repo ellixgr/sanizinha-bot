@@ -36,14 +36,13 @@ async def e_adm_no_chat(bot, chat_id: int, user_id: int) -> bool:
 
 
 # ==============================================
-# ✅ FUNÇÃO PRINCIPAL: LISTA GRUPOS COM NOME DO TELEGRAM
+# ✅ FUNÇÃO PRINCIPAL: LISTA GRUPOS DO USUÁRIO
 # ==============================================
 async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
     bot = context.bot
 
-    # ✅ DONO passa direto, assinante precisa de licença
     eh_dono = (DONO_ID and str(user_id) == str(DONO_ID))
     if not eh_dono and not await tem_licenca_ativa(user_id):
         await query.answer("⚠️ Você precisa alugar o bot para usar essa função!", show_alert=True)
@@ -52,9 +51,9 @@ async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TY
     db = get_db()
     agora = time.time()
 
-    # ✅ Pega todos os grupos cadastrados do usuário
+    # 🔴 CORRIGIDO: usa dono_adicionou_id (igual ao bot_adicionado_grupo)
     grupos_cadastrados = list(db["grupos_autorizados"].find({
-        "registrado_por": user_id,
+        "dono_adicionou_id": user_id,  # ✅ ERA registrado_por → AGORA ESTÁ CERTO!
         "ativo": True,
         "expira_em": {"$gt": agora}
     }))
@@ -62,45 +61,41 @@ async def listar_grupos_usuario(update: Update, context: ContextTypes.DEFAULT_TY
     if not grupos_cadastrados:
         texto = (
             "📋 **Nenhum grupo encontrado!**\n\n"
-            "Use o comando /addgrupo dentro do seu grupo/canal para cadastrar."
+            "Adicione o bot em seu grupo e tente novamente."
         )
         teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         await query.answer()
         return
 
-    # ✅ FILTRA + PEGA O NOME DIRETO DO TELEGRAM (não usa o do banco!)
     grupos_validos = []
     for g in grupos_cadastrados:
         chat_id = g["chat_id"]
         if await e_adm_no_chat(bot, chat_id, user_id):
             try:
-                # 🔴 BUSCA O NOME ATUAL DO GRUPO NO TELEGRAM
                 chat_info = await bot.get_chat(chat_id)
                 nome_real = chat_info.title or f"Grupo {chat_id}"
             except Exception:
-                # Se não conseguir acessar, usa o que tem no banco ou o ID
-                nome_real = g.get("nome_grupo", f"Grupo {chat_id}")
+                nome_real = g.get("nome", f"Grupo {chat_id}")  # ✅ também corrigido: nome_grupo → nome
             grupos_validos.append({"chat_id": chat_id, "nome_real": nome_real})
 
     if not grupos_validos:
         texto = (
             "⚠️ **Você não é mais administrador em nenhum grupo cadastrado.**\n\n"
-            "Cadastre novos grupos com /addgrupo."
+            "Adicione o bot em novos grupos."
         )
         teclado = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="voltar_menu_principal")]])
         await query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         await query.answer()
         return
 
-    # ✅ EXIBE OS BOTÕES COM O NOME REAL DO TELEGRAM
     qtd = len(grupos_validos)
     texto = f"⚙️ **SEUS GRUPOS/CANAIS ({qtd}) — ONDE VOCÊ É ADM:**\n\nEscolha um para configurar:\n"
     botoes = []
 
     for grupo in grupos_validos:
         chat_id = grupo["chat_id"]
-        nome = grupo["nome_real"]  # ✅ NOME REAL DO TELEGRAM
+        nome = grupo["nome_real"]
         botoes.append([InlineKeyboardButton(f"🏢 {nome}", callback_data=f"config_grupo_{chat_id}")])
 
     botoes.append([InlineKeyboardButton("🔙 Voltar ao Menu", callback_data="voltar_menu_principal")])
@@ -127,17 +122,17 @@ async def painel_config_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     db = get_db()
-    grupo = db["grupos_autorizados"].find_one({"chat_id": chat_id, "registrado_por": user_id})
+    # 🔴 CORRIGIDO: dono_adicionou_id no lugar de registrado_por
+    grupo = db["grupos_autorizados"].find_one({"chat_id": chat_id, "dono_adicionou_id": user_id})
     if not grupo:
         await query.answer("⚠️ Grupo não encontrado ou não pertence a você!", show_alert=True)
         return
 
-    # ✅ TAMBÉM PEGA O NOME REAL AQUI
     try:
         chat_info = await bot.get_chat(chat_id)
         nome_grupo = chat_info.title or f"Grupo {chat_id}"
     except Exception:
-        nome_grupo = grupo.get("nome_grupo", f"Grupo {chat_id}")
+        nome_grupo = grupo.get("nome", f"Grupo {chat_id}")  # ✅ nome_grupo → nome
 
     texto = (
         f"⚙️ **CONFIGURANDO: {nome_grupo}**\n\n"
@@ -245,7 +240,6 @@ async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TY
         await abrir_protecoes(update, context)
         return
 
-    # ✅ ALTERNAR PROTEÇÕES
     if dados.startswith("toggle_priv_"):
         partes = dados.replace("toggle_priv_", "").rsplit("_", 1)
         tipo = partes[0]
@@ -257,7 +251,6 @@ async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TY
         await abrir_protecoes(update, context)
         return
 
-    # ✅ ESCOLHER PUNIÇÃO
     if dados.startswith("menu_punicao_priv_"):
         chat_id = int(dados.replace("menu_punicao_priv_", ""))
         texto = "⚖️ **ESCOLHA A PUNIÇÃO:**"
@@ -270,7 +263,6 @@ async def tratar_botoes_configp(update: Update, context: ContextTypes.DEFAULT_TY
         await update.callback_query.message.edit_text(texto, reply_markup=teclado, parse_mode="Markdown")
         return
 
-    # ✅ DEFINIR PUNIÇÃO
     if dados.startswith("def_pun_"):
         partes = dados.replace("def_pun_", "").rsplit("_", 1)
         tipo = partes[0]
